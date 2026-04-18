@@ -26,7 +26,7 @@ let lastRecallDetails: RecallMessageDetails | null = null;
 
 export default function (pi: ExtensionAPI) {
   // Load and validate config
-  const { config, warning } = loadConfig();
+  const { config, configPath, warning, envVars } = loadConfig();
   const validation = validateConfig(config);
 
   // Global disable check
@@ -66,6 +66,12 @@ export default function (pi: ExtensionAPI) {
     () => lastRecallDetails,
     () => recallDisplayOverride,
     (value) => { recallDisplayOverride = value; },
+    {
+      configPath,
+      envVars,
+      warning,
+      validationWarnings: validation.warnings,
+    },
   );
 
   // Register custom message renderer for hindsight-recall messages

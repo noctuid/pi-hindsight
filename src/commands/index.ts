@@ -23,6 +23,12 @@ export function registerCommands(
   getRecallDetails: () => RecallMessageDetails | null,
   getRecallDisplayOverride: () => boolean | null,
   setRecallDisplayOverride: (value: boolean | null) => void,
+  configMeta: {
+    configPath?: string;
+    envVars: string[];
+    warning?: string;
+    validationWarnings: string[];
+  },
 ): void {
   // /hindsight-flush - Flush current session's queue
   pi.registerCommand("hindsight-flush", {
@@ -331,6 +337,102 @@ export function registerCommands(
           overlayOptions: { anchor: "center", width: 80, maxHeight: 30 },
         },
       );
+    },
+  });
+
+  // /hindsight-status - Show operational status
+  pi.registerCommand("hindsight-status", {
+    description: "Show operational status",
+    handler: async (_args: string, ctx: ExtensionContext) => {
+      const lines: string[] = [];
+
+      // Connection status
+      lines.push("== Connection ==");
+      if (client) {
+        const healthResult = await client.healthCheck(ctx.signal);
+        if (healthResult.success) {
+          lines.push("  Server: reachable");
+        } else {
+          lines.push(`  Server: unreachable (${healthResult.error})`);
+        }
+      } else {
+        lines.push("  Server: not configured");
+      }
+
+      // Bank and session info
+      lines.push("\n== Session ==");
+      lines.push(`  Bank ID: ${config.bankId}`);
+      const sessionId = ctx.sessionManager.getSessionId();
+      lines.push(`  Session ID: ${sessionId ?? "none"}`);
+
+      // Last recall status
+      lines.push("\n== Last Recall ==");
+      const recallDetails = getRecallDetails();
+      if (recallDetails) {
+        lines.push(`  Memories: ${recallDetails.count}`);
+        lines.push(`  Snippet: ${recallDetails.snippet.slice(0, 60)}${recallDetails.snippet.length > 60 ? "..." : ""}`);
+      } else {
+        lines.push("  No recall this session");
+      }
+
+      // Feature flags
+      lines.push("\n== Features ==");
+      lines.push(`  Auto-recall: ${config.autoRecallEnabled ? "enabled" : "disabled"}`);
+      lines.push(`  Auto-retain: ${config.autoRetainEnabled ? "enabled" : "disabled"}`);
+
+      // Active recall settings
+      lines.push("\n== Auto Recall Settings ==");
+      lines.push(`  Persist: ${config.recallPersist}`);
+      lines.push(`  Display: ${config.recallDisplay}`);
+      lines.push(`  Types: ${config.recallTypes ? config.recallTypes.join(", ") : "all"}`);
+      lines.push(`  Budget: ${config.autoRecallBudget}`);
+
+      ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // /hindsight-config - Show configuration
+  pi.registerCommand("hindsight-config", {
+    description: "Show configuration",
+    handler: async (_args: string, ctx: ExtensionContext) => {
+      const lines: string[] = [];
+
+      // Config file path
+      lines.push("== Config Source ==");
+      lines.push(`  File: ${configMeta.configPath ?? "none (using defaults)"}`);
+
+      // Environment variables
+      lines.push("\n== Environment Variables ==");
+      if (configMeta.envVars.length > 0) {
+        lines.push(`  Set: ${configMeta.envVars.join(", ")}`);
+      } else {
+        lines.push("  None set");
+      }
+
+      // Full config (mask apiKey)
+      lines.push("\n== Configuration ==");
+      const maskedConfig = {
+        ...config,
+        apiKey: config.apiKey
+          ? (config.apiKey.length > 4 ? `****${config.apiKey.slice(-4)}` : "****")
+          : "(not set)",
+      };
+      lines.push(JSON.stringify(maskedConfig, null, 2).split("\n").map((l) => `  ${l}`).join("\n"));
+
+      // Warnings at the end
+      lines.push("\n== Warnings ==");
+      const allWarnings: string[] = [];
+      if (configMeta.warning) allWarnings.push(configMeta.warning);
+      allWarnings.push(...configMeta.validationWarnings);
+      if (allWarnings.length > 0) {
+        for (const w of allWarnings) {
+          lines.push(`  - ${w}`);
+        }
+      } else {
+        lines.push("  None");
+      }
+
+      ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 }

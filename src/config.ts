@@ -306,7 +306,7 @@ function setConfigValue(
   }
 }
 
-export function loadConfig(extensionsDir?: string): { config: HindsightConfig; warning?: string } {
+export function loadConfig(extensionsDir?: string): { config: HindsightConfig; configPath?: string; warning?: string; envVars: string[] } {
   // Deep copy to avoid mutating DEFAULT_CONFIG
   // Note: retainContent and strip are replaced entirely (not merged) in setConfigValue
   const config: HindsightConfig = {
@@ -371,15 +371,17 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; w
     PI_HINDSIGHT_ENTITIES: "entities",
   };
 
+  const envVars: string[] = [];
   for (const [envVar, configKey] of Object.entries(envMappings)) {
     const value = process.env[envVar];
     if (value !== undefined) {
+      envVars.push(envVar);
       const warning = setConfigValue(config, configKey, value);
       if (warning) warnings.push(warning);
     }
   }
 
-  return { config, warning: warnings.length > 0 ? warnings.join("; ") : undefined };
+  return { config, configPath: configPath ?? undefined, warning: warnings.length > 0 ? warnings.join("; ") : undefined, envVars };
 }
 
 export function validateConfig(config: HindsightConfig): { valid: boolean; errors: string[]; warnings: string[] } {
