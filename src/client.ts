@@ -38,6 +38,54 @@ export class HindsightClientWrapper {
   }
 
   /**
+   * Check server health by pinging the health endpoint.
+   */
+  async healthCheck(signal?: AbortSignal, timeoutMs: number = 5000): Promise<{ success: boolean; error?: string }> {
+    const controller = new AbortController();
+    let timedOut = false;
+
+    // Chain external abort signal
+    let abortHandler: (() => void) | undefined;
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        abortHandler = () => controller.abort();
+        signal.addEventListener("abort", abortHandler);
+      }
+    }
+
+    try {
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+
+      const response = await fetch(`${this.config.apiUrl}/health`, {
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        return { success: true };
+      }
+      return { success: false, error: `HTTP ${response.status}` };
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") {
+        if (timedOut) {
+          return { success: false, error: `Operation timed out after ${timeoutMs}ms` };
+        }
+        return { success: false, error: "Operation cancelled" };
+      }
+      return { success: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      if (abortHandler) {
+        signal!.removeEventListener("abort", abortHandler);
+      }
+    }
+  }
+
+  /**
    * Retain content with timeout and optional abort signal.
    */
   async retain(
