@@ -55,6 +55,23 @@ export default function (pi: ExtensionAPI) {
     console.log("pi-hindsight initialized");
   }
 
+  // Set status bar indicator based on health
+  // Checks config validity and server connectivity
+  const configHealthy = validation.valid && !warning && validation.warnings.length === 0;
+  pi.on("session_start", async (_event, ctx) => {
+    if (!configHealthy) {
+      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
+      return;
+    }
+    // Verify server is reachable
+    const healthResult = await client!.healthCheck(ctx.signal);
+    if (healthResult.success) {
+      ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
+    } else {
+      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
+    }
+  });
+
   // Register tools (hindsight_retain always, hindsight_recall when configured)
   registerTools(pi, config, client);
 
