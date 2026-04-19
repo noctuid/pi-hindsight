@@ -51,6 +51,8 @@ export interface HindsightConfig {
   strip: StripConfig;
   flushOnCompact: boolean;
   entities: EntityInput[];
+  statusHealthy: string;
+  statusUnhealthy: string;
 }
 
 const VALID_MEMORY_TYPES = ["world", "experience", "observation"] as const;
@@ -86,6 +88,8 @@ const DEFAULT_CONFIG: HindsightConfig = {
   },
   flushOnCompact: false,
   entities: [],
+  statusHealthy: "🧠",
+  statusUnhealthy: "🤯",
 };
 
 // Config keys that can be set via env vars or config file
@@ -94,6 +98,7 @@ const VALID_CONFIG_KEYS = new Set<keyof HindsightConfig>([
   "autoRetainEnabled", "hindsightContextPrefix", "hindsightContextMaxLength", "maxRecallTokens",
   "recallPromptPreamble", "recallShowDateTime", "recallDisplay", "recallPersist", "recallMaxQueryChars", "recallTypes",
   "constantTags", "retainContent", "strip", "flushOnCompact", "entities",
+  "statusHealthy", "statusUnhealthy",
 ]);
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): { value: boolean; warning?: string } {
@@ -296,6 +301,8 @@ function setConfigValue(
     case "bankId":
     case "hindsightContextPrefix":
     case "recallPromptPreamble":
+    case "statusHealthy":
+    case "statusUnhealthy":
       config[key] = String(value);
       return;
     default: {
@@ -369,6 +376,8 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; c
     PI_HINDSIGHT_CONSTANT_TAGS: "constantTags",
     PI_HINDSIGHT_FLUSH_ON_COMPACT: "flushOnCompact",
     PI_HINDSIGHT_ENTITIES: "entities",
+    PI_HINDSIGHT_STATUS_HEALTHY: "statusHealthy",
+    PI_HINDSIGHT_STATUS_UNHEALTHY: "statusUnhealthy",
   };
 
   const envVars: string[] = [];
