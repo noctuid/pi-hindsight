@@ -70,7 +70,7 @@ export default function (pi: ExtensionAPI) {
     }
     // Verify server is reachable
     const healthResult = await client?.healthCheck(ctx.signal);
-    if (healthResult.success) {
+    if (healthResult?.success) {
       ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
     } else {
       ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
@@ -164,44 +164,36 @@ export default function (pi: ExtensionAPI) {
   // Context event handler:
   // 1. Always filter out hindsight-recall messages (prevent old recalls from being sent to LLM)
   // 2. If recallPersist is false, inject recall message (not visible, not persisted, sent to LLM)
-  // @ts-expect-error - AgentMessage union includes types without 'content' (e.g., BashExecutionMessage).
-  // We filter to user messages with content at runtime.
-  pi.on(
-    "context",
-    async (
-      event: { messages: Array<{ role: string; content?: unknown; customType?: string }> },
-      ctx: ExtensionContext
-    ) => {
-      const messages = event.messages;
+  pi.on("context", async (event, ctx: ExtensionContext) => {
+    const messages = event.messages as Array<{ role: string; content?: unknown; customType?: string }>;
 
-      // Always filter out existing hindsight-recall messages from the messages array
-      // This is critical to prevent old recall messages from being sent to the LLM
-      const filteredMessages = messages.filter((msg) => msg.customType !== "hindsight-recall");
-      const hadRecallMessages = filteredMessages.length !== messages.length;
+    // Always filter out existing hindsight-recall messages from the messages array
+    // This is critical to prevent old recall messages from being sent to the LLM
+    const filteredMessages = messages.filter((msg) => msg.customType !== "hindsight-recall");
+    const hadRecallMessages = filteredMessages.length !== messages.length;
 
-      // If recallPersist is false and auto-recall is enabled, inject recall here
-      // (not visible, not persisted, but sent to LLM for this turn only)
-      if (client && config.autoRecallEnabled && !config.recallPersist) {
-        // Only trigger recall if the last message is from user
-        const lastMessage = filteredMessages[filteredMessages.length - 1];
-        if (lastMessage && lastMessage.role === "user") {
-          const userMessage = extractTextFromContent(lastMessage.content);
-          if (userMessage) {
-            // Call shared recall helper (always display: false when recallPersist is false)
-            const result = await doAutoRecall(userMessage, ctx.signal, false);
-            if (result) {
-              return { messages: [...filteredMessages, result.recallMessage] };
-            }
+    // If recallPersist is false and auto-recall is enabled, inject recall here
+    // (not visible, not persisted, but sent to LLM for this turn only)
+    if (client && config.autoRecallEnabled && !config.recallPersist) {
+      // Only trigger recall if the last message is from user
+      const lastMessage = filteredMessages[filteredMessages.length - 1];
+      if (lastMessage && lastMessage.role === "user") {
+        const userMessage = extractTextFromContent(lastMessage.content);
+        if (userMessage) {
+          // Call shared recall helper (always display: false when recallPersist is false)
+          const result = await doAutoRecall(userMessage, ctx.signal, false);
+          if (result) {
+            return { messages: [...filteredMessages, result.recallMessage] } as any;
           }
         }
       }
-
-      // If we filtered out recall messages but didn't inject new ones, return filtered array
-      if (hadRecallMessages) {
-        return { messages: filteredMessages };
-      }
     }
-  );
+
+    // If we filtered out recall messages but didn't inject new ones, return filtered array
+    if (hadRecallMessages) {
+      return { messages: filteredMessages } as any;
+    }
+  });
 
   // Queue messages on message_end event
   pi.on("message_end", async (event, ctx: ExtensionContext) => {
