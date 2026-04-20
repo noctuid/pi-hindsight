@@ -1,12 +1,16 @@
 # About
 A pi extension that integrates Hindsight AI memory for long-term conversation memory.
 
+Status: This is currently alpha level software. I recommend waiting until I publish to npm if you want something more stable.
+
 # Table of Contents
 - [Key Features](#key-features)
 - [Philosophy](#philosophy)
+- [Local Quickstart](#local-quickstart)
 - [Configuration](#configuration)
   - [Example Configuration](#example-configuration)
   - [Auto-Recall Settings](#auto-recall-settings)
+    - [recallPersist Tradeoffs](#recallpersist-tradeoffs)
   - [Status Bar Indicator](#status-bar-indicator)
   - [Session Retention Control](#session-retention-control)
   - [Content Retention & Stripping Settings](#content-retention--stripping-settings)
@@ -56,6 +60,59 @@ Additionally:
 - Properly handles forking when ingesting full sessions: forks will not duplicate parent content and will only contain new content
 - Provides automatic tags: session id, parent session id, store method (tool or auto), and any configured tags like `harness:pi` (default)
 - Allows choosing what content to retain and stripping unnecessary fields to reduce tokens/cost
+
+# Local Quickstart
+If you want want to run hindsight on your own server or using [hindsight cloud](https://ui.hindsight.vectorize.io/signup), ignore the hindsight-embed commands.
+
+Create a profile:
+```bash
+uvx hindsight-embed@latest profile create <name> --port <e.g. 9100>
+```
+
+Create a bank:
+```bash
+uvx hindsight-embed@latest -p <profile name> bank create <e.g. default>
+```
+
+Start the UI (automatically starts the daemon, will show dashboard url):
+```bash
+uvx hindsight-embed@latest -p <profile name> ui start
+```
+
+You can set any environment variables you want in `~/.hindsight/profiles/<profile>.env`:
+```env
+# if you want the daemon to remain running (required for this pi extension), you
+# either need to create a service or set this variable to 0; otherwise when run
+# through uvx it shuts down after there are no requests for a period
+HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT=0
+
+HINDSIGHT_API_LLM_PROVIDER=openai
+HINDSIGHT_API_LLM_API_KEY=sk-...
+HINDSIGHT_API_LLM_BASE_URL=.../v1
+HINDSIGHT_API_LLM_MODEL=<model>
+# if have limited concurrency with provider
+HINDSIGHT_API_LLM_MAX_CONCURRENT=5
+
+# can pick faster/cheaper model for lower latency
+HINDSIGHT_API_REFLECT_LLM_MODEL=<model>
+# hindsight has many other configuration variables, see the documentation for all of them
+```
+
+You can customize your retain, observation, and reflect missions in the UI (as well as other settings). See also [Recommended User Best Practices](#recommended-user-best-practices). It is recommended you read over these *early on* to avoid needing to reingest data later after changing settings (but that is always a possibility if you need to).
+
+Create a basic `~/.pi/agent/extensions/pi-hindsight/config.jsonc`:
+```jsonc
+{
+  "enabled": "true",
+  "apiUrl": "http://127.0.0.1:9100",
+  "apiKey": "unused",
+  "bankId": "default",
+  // read over traedoffs before enabling
+  "recallPersist": true,
+  "recallDisplay": true
+}
+```
+See [recallPersist Tradeoffs](#recallpersist-tradeoffs) before enabling!
 
 # Configuration
 Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json` or `config.jsonc` (JSONC has precedence).
@@ -306,8 +363,8 @@ There are multiple other Hindsight integrations for Pi:
 | Retain as JSON (not plain text) | ✅ | ❌ | ❌ | ❌¹ |
 | Disk queue + reliable persistence | ✅ | ❌ | ❌ | ❌ |
 | Official Hindsight client library | ✅ | ❌ | ❌ | ✅ |
-| Direct retain on agent_end | ❌ | ✅ | ✅ | ✅ |
-| Credential sanitization on retain | ❌ | ❌ | ❌ | ✅ |
+| Direct retain on agent_end | ❌¹¹ | ✅ | ✅ | ✅ |
+| Credential sanitization on retain | ❌¹² | ❌ | ❌ | ✅ |
 | Configurable write frequency | *(planned)* | ❌ | ❌ | ✅² |
 | **Config** |
 | JSON/JSONC config file | ✅ | ❌ | ❌ | ❌³ |
@@ -360,6 +417,8 @@ There are multiple other Hindsight integrations for Pi:
 > ⁸ anh-chu derives `project-{dirname}` from cwd basename (simple, collision-prone). hindsight-pi supports git remote, branch, and per-directory hash strategies.
 > ⁹ Named `hindsight_search` in hindsight-pi.
 > ¹⁰ Named `hindsight_context` in hindsight-pi (uses Hindsight's reflect API with dynamic reasoning budget).
+> ¹¹ Queues messages to disk instead, which prevents data loss if Hindsight is down and allows deferring/reprocessing later. See [Design Decisions](#design-decisions).
+> ¹² Credential sanitization can't perfectly detect all secrets and risks giving a false sense of safety. It's better prevented at the source — e.g., use [gondolin with secret injection](https://earendil-works.github.io/gondolin/secrets/) or manually remove sensitive fields. If you run memory locally, the risk is lower; if a secret already made it into the session file, it was already sent to your LLM provider, so rotating the credential is the safe move.
 
 > **Note:** This comparison table was AI-generated. If anything is incorrect or outdated, please open a PR. I'm only 100% sure of the current features of my own plugin.
 
@@ -412,12 +471,13 @@ All commands are under `/hindsight <subcommand>`. With no subcommand, defaults t
 > **Note:** After `/resume`, a new user message is required before `/hindsight popup` will show content, since recall only happens when there's a user message to query against.
 
 # Recommended User Best Practices
+- See the [model leaderboard](https://benchmarks.hindsight.vectorize.io/) for information on what models to use. I am currently using gemma 4 31b for retention/consolidation.
 - Think about your [retain mission](https://hindsight.vectorize.io/developer/api/memory-banks#retain-configuration), [observations mission](https://hindsight.vectorize.io/developer/api/memory-banks#observations_mission), and [entity labels](https://hindsight.vectorize.io/developer/api/memory-banks#entity-labels) up front, as if you change these later and want them to affect old sessions, you will need to reingest everything.
 - Remember that the recall prompt is constructed from the first part of your user message. For long prompts, consider putting any details or keywords you want memories for towards the beginning.
 
 # Caveats
 - This plugin is still in flux and may have breaking changes
-- Depending on your workflow with `/tree` and what you expect to be retained, this package may not play well (all new messages and session file content will be retained); also see rewind/rollback information below
+- Depending on your workflow with `/tree` and what you expect to be retained, this package may not play well (all new messages and session file content will be retained). Also see rewind/rollback information below
 - Currently missing observation scopes
 - Currently the only flush options are manual or on session event
 
@@ -453,4 +513,6 @@ I went through many rounds of manual review and bug fixes for the initial code a
 
 The commands to show the status, config, popup, and recall display in the UI (which I don't consider nearly as critical) were not thoroughly reviewed by me. I reviewed the initial config parsing code but have only briefly looked over the changes to it.
 
-This all said, the automated tests have not been reviewed properly. I'm sure there are also bugs that I have not caught. Any feedback is welcome here, but one major advantage of this plugin is that **you can easily verify the queue and parsed session files are as expected yourself** before retention, and then you can verify that the documents and tags are as expected after retention. You can also verify for yourself that you are still getting cached reads.
+The automated tests have not been reviewed properly. I'm sure there are also bugs that I have not caught. Any feedback is welcome here, but one major advantage of this plugin is that **you can easily verify the queue and parsed session files are as expected yourself** before retention, and then you can verify that the documents and tags are as expected after retention. You can also verify for yourself that you are still getting cached reads.
+
+Long term, I plan to focus on ensuring this extension is robust and bug-free. The primary reason I am making this extension myself is to make sure every aspect works correctly after finding issues with a lot of integrations for other memory systems or harnesses. Correctness matters too much for memory to not review the code.
