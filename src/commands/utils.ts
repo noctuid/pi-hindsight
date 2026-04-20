@@ -1,0 +1,173 @@
+/**
+ * Shared utilities for slash commands.
+ */
+
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { HindsightClientWrapper } from "../client";
+import type { HindsightConfig } from "../config";
+import { buildDocumentTags, buildMessageArrayFromSession, getHindsightContext, parseSessionFile } from "../document";
+import { getHindsightMeta, shouldSessionBeRetained } from "../meta";
+import { deleteAutoQueue, deleteToolQueue } from "../queue";
+import { getSessionDisplayName } from "../utils";
+
+/** Result of parsing a session file for subcommand handlers. */
+export interface ParsedSessionResult {
+  /** The parsed session data ready for retention or disk output. */
+  parsedSession: {
+    documentId: string;
+    context: string;
+    tags: string[];
+    timestamp: string;
+    messages: object[];
+    parsedAt: string;
+  };
+  /** Path where the parsed session file was written on disk. */
+  outputPath: string;
+}
+
+/**
+ * Parse the current session file into a structured object for retention/export.
+ *
+ * Validates the session file exists, checks retention state, builds document tags
+ * and context, and writes the parsed session to disk for later review.
+ * Returns a {@link ParsedSessionResult} on success, or a string message on early exit
+ * (e.g. "No session file found", "No messages to parse").
+ */
+export function parseCurrentSession(
+  ctx: ExtensionContext,
+  config: HindsightConfig
+): ParsedSessionResult | string {
+  const sessionFile = ctx.sessionManager.getSessionFile();
+  if (!sessionFile || !existsSync(sessionFile)) {
+    return "No session file found";
+  }
+
+  const { header, entries: originalEntries } = parseSessionFile(sessionFile);
+  const { messages, documentId, warning } = buildMessageArrayFromSession(sessionFile, config);
+
+  // If no messages, include the specific warning if available (e.g. fork issues)
+  if (messages.length === 0) {
+    return warning ?? "No messages to parse";
+  }
+
+  // If there are messages but also a warning, return the warning
+  if (warning) {
+    return warning;
+  }
+
+  // Check retention state
+  if (!shouldSessionBeRetained(originalEntries, config)) {
+    return "Session does not allow retention. Use /hindsight toggle-retain to enable retention.";
+  }
+
+  // Build tags from metadata
+  const parsedMeta = getHindsightMeta(originalEntries);
+  const sessionTags = parsedMeta?.tags ?? [];
+  const sessionName = getSessionDisplayName(
+    ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
+    ctx.sessionManager.getEntries.bind(ctx.sessionManager)
+  );
+
+  const tags = buildDocumentTags(header, config, { sessionTags });
+  const context = getHindsightContext(sessionFile, config, sessionName);
+
+  // Build the parsed session output
+  const parsedSession = {
+    documentId,
+    context,
+    tags,
+    timestamp: header.timestamp,
+    messages,
+    parsedAt: new Date().toISOString(),
+  };
+
+  // Write parsed session to disk for later review
+  const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
+  if (!existsSync(parsedDir)) {
+    mkdirSync(parsedDir, { recursive: true });
+  }
+  const outputPath = join(parsedDir, `${header.id}.jsonl`);
+  writeFileSync(outputPath, `${JSON.stringify(parsedSession)}\n`, "utf8");
+
+  return { parsedSession, outputPath };
+}
+
+/**
+ * Call client.retain with standard options (updateMode=replace, entities from config).
+ * Throws on failure.
+ */
+export async function upsertToHindsight(
+  client: HindsightClientWrapper,
+  params: {
+    content: string;
+    documentId: string;
+    context: string;
+    timestamp: string;
+    tags: string[];
+  },
+  config: HindsightConfig,
+  signal?: AbortSignal
+): Promise<void> {
+  const result = await client.retain(
+    {
+      content: params.content,
+      documentId: params.documentId,
+      context: params.context,
+      timestamp: params.timestamp,
+      tags: params.tags,
+      updateMode: "replace",
+      entities: config.entities.length > 0 ? config.entities : undefined,
+    },
+    signal
+  );
+
+  if (!result.success) {
+    throw new Error(result.error ?? "Unknown error");
+  }
+}
+
+/**
+ * Parse the current session file and upsert to Hindsight in one step.
+ *
+ * Delegates to {@link parseCurrentSession} for parsing, then calls
+ * {@link upsertToHindsight} and clears queued messages.
+ * Returns a description of the result, or throws on error.
+ */
+export async function parseAndUpsertSession(
+  ctx: ExtensionContext,
+  config: HindsightConfig,
+  client: HindsightClientWrapper
+): Promise<string> {
+  const result = parseCurrentSession(ctx, config);
+
+  if (typeof result === "string") {
+    return result;
+  }
+
+  const { parsedSession } = result;
+
+  // Clear queued messages to prevent duplication — the full session was just upserted
+  const sessionId = ctx.sessionManager.getSessionId();
+  if (sessionId) {
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+  }
+
+  await upsertToHindsight(
+    client,
+    {
+      content: JSON.stringify(parsedSession.messages),
+      documentId: parsedSession.documentId,
+      context: parsedSession.context,
+      timestamp: parsedSession.timestamp,
+      tags: parsedSession.tags,
+    },
+    config,
+    ctx.signal
+  );
+
+  return `Parsed and upserted ${parsedSession.messages.length} messages`;
+}
