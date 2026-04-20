@@ -11,7 +11,7 @@ import type { Budget } from "@vectorize-io/hindsight-client";
 export interface RetainContent {
   assistant: ("text" | "thinking" | "toolCall")[];
   user: ("text" | "image")[];
-  toolResult: ("text")[];
+  toolResult: "text"[];
 }
 
 export interface StripConfig {
@@ -287,14 +287,34 @@ function setConfigValue(
     case "strip":
       // Replace entirely (not merge) - user must provide complete object
       if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        Object.assign(config, { [key]: value });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (config as any)[key] = value;
         return;
+      }
+      // String value from env var - parse as JSON
+      if (typeof value === "string") {
+        try {
+          const parsed = JSON.parse(value);
+          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (config as any)[key] = parsed;
+            return;
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (config as any)[key] = DEFAULT_CONFIG[key];
+          return `${key} must be a JSON object, got ${typeof parsed}. Using default.`;
+        } catch {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (config as any)[key] = DEFAULT_CONFIG[key];
+          return `${key} contains invalid JSON. Using default.`;
+        }
       }
       // null might be intentional (e.g., unsetting config), don't warn
       if (value === null) {
         return;
       }
-      config[key] = DEFAULT_CONFIG[key];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (config as any)[key] = DEFAULT_CONFIG[key];
       return `${key} must be an object, got ${Array.isArray(value) ? "array" : typeof value}. Using default.`;
     case "apiUrl":
     case "apiKey":
@@ -375,6 +395,8 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; c
     PI_HINDSIGHT_RECALL_TYPES: "recallTypes",
     PI_HINDSIGHT_CONSTANT_TAGS: "constantTags",
     PI_HINDSIGHT_FLUSH_ON_COMPACT: "flushOnCompact",
+    PI_HINDSIGHT_RETAIN_CONTENT: "retainContent",
+    PI_HINDSIGHT_STRIP: "strip",
     PI_HINDSIGHT_ENTITIES: "entities",
     PI_HINDSIGHT_STATUS_HEALTHY: "statusHealthy",
     PI_HINDSIGHT_STATUS_UNHEALTHY: "statusUnhealthy",

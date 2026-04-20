@@ -3,6 +3,7 @@
  */
 
 import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import type { ThemeColor } from "@mariozechner/pi-coding-agent";
 import type { RecallMessageDetails } from "./index";
 
 /**
@@ -15,7 +16,7 @@ export class RecallOverlayComponent {
   private maxContentLines: number;
 
   constructor(
-    private theme: { fg: (color: string, text: string) => string },
+    private theme: { fg: (color: ThemeColor, text: string) => string },
     private details: RecallMessageDetails,
     private done: () => void,
     overlayOptions?: { maxHeight?: number },
