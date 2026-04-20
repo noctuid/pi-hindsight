@@ -9,7 +9,8 @@
     "format:check": "biome format . --check && ! grep -n '[[:space:]]$' src/*.ts *.md",
     "check": "biome check . && ! grep -n '[[:space:]]$' src/*.ts *.md",
     "check:fix": "biome check . --write && sed -i 's/[[:space:]]*$//' src/*.ts *.md",
-    "typecheck": "bun run --bun tsc --noEmit"
+    "typecheck": "bun run --bun tsc --noEmit",
+    "ci": "bun run check && bun run typecheck && bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",

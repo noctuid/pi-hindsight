@@ -38,7 +38,7 @@ async function upsertToHindsight(
     tags: string[];
   },
   config: HindsightConfig,
-  signal: unknown
+  signal?: AbortSignal
 ): Promise<void> {
   const result = await client.retain(
     {
