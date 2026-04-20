@@ -2,10 +2,10 @@
  * Queue file management for turn-by-turn retention.
  *
  * Queue files are stored in:
- *   <getAgentDir()>/extensions/pi-hindsight/queues/session-{id}.queue.jsonl
+ *   <getAgentDir()>/extensions/pi-hindsight/queues/{id}.queue.jsonl
  *
  * Each line is a single JSON AutoQueueEntry object.
- * Tool queue files use session-{id}.tool-queue.jsonl with ToolQueueEntry objects.
+ * Tool queue files use {id}.tool-queue.jsonl with ToolQueueEntry objects.
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
@@ -48,14 +48,14 @@ export function getQueueDir(): string {
  * Get the queue file path for a session (auto-queued messages).
  */
 export function getQueuePath(sessionId: string): string {
-  return join(getQueueDir(), `session-${sessionId}.queue.jsonl`);
+  return join(getQueueDir(), `${sessionId}.queue.jsonl`);
 }
 
 /**
  * Get the tool queue file path for a session (manual/tool retains).
  */
 export function getToolQueuePath(sessionId: string): string {
-  return join(getQueueDir(), `session-${sessionId}.tool-queue.jsonl`);
+  return join(getQueueDir(), `${sessionId}.tool-queue.jsonl`);
 }
 
 /**
