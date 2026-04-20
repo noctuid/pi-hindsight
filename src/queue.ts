@@ -8,7 +8,7 @@
  * Tool queue files use session-{id}.tool-queue.jsonl with ToolQueueEntry objects.
  */
 
-import { appendFileSync, existsSync, readFileSync, unlinkSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
@@ -76,7 +76,7 @@ export function enqueueAutoMessage(sessionId: string, entry: AutoQueueEntry): bo
   try {
     ensureQueueDir();
     const queuePath = getQueuePath(sessionId);
-    appendFileSync(queuePath, JSON.stringify(entry) + "\n", "utf8");
+    appendFileSync(queuePath, `${JSON.stringify(entry)}\n`, "utf8");
     return true;
   } catch (e) {
     console.error(`Failed to enqueue auto message for session ${sessionId}:`, e);
@@ -92,7 +92,7 @@ export function enqueueToolMessage(sessionId: string, entry: ToolQueueEntry): bo
   try {
     ensureQueueDir();
     const queuePath = getToolQueuePath(sessionId);
-    appendFileSync(queuePath, JSON.stringify(entry) + "\n", "utf8");
+    appendFileSync(queuePath, `${JSON.stringify(entry)}\n`, "utf8");
     return true;
   } catch (e) {
     console.error(`Failed to enqueue tool message for session ${sessionId}:`, e);

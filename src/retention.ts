@@ -2,11 +2,17 @@
  * Retention handling for pi message events.
  */
 
-import { enqueueAutoMessage, readAutoQueue, deleteAutoQueue, enqueueToolMessage, readToolQueue, deleteToolQueue } from "./queue";
-import type { ToolQueueEntry } from "./queue";
-import { truncate } from "./utils";
-import type { HindsightConfig } from "./config";
 import type { HindsightClientWrapper } from "./client";
+import type { HindsightConfig } from "./config";
+import type { ToolQueueEntry } from "./queue";
+import {
+  deleteAutoQueue,
+  deleteToolQueue,
+  enqueueToolMessage,
+  readAutoQueue,
+  readToolQueue,
+} from "./queue";
+import { truncate } from "./utils";
 
 /**
  * Queue a tool retain entry with complete tags.
@@ -20,7 +26,7 @@ export function queueToolRetain(
   metadata: Record<string, string> | undefined,
   sessionCwd: string,
   parentSessionId: string | undefined,
-  config: Pick<HindsightConfig, "constantTags">,
+  config: Pick<HindsightConfig, "constantTags">
 ): boolean {
   // Build complete tags at queue time
   const tags = [
@@ -54,7 +60,7 @@ export async function flushAutoQueue(
   parentSessionId: string | undefined,
   config: HindsightConfig,
   client: HindsightClientWrapper,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; error?: string; count: number }> {
   const entries = readAutoQueue(sessionId);
   if (entries.length === 0) {
@@ -73,7 +79,7 @@ export async function flushAutoQueue(
   // Build context
   const context = truncate(
     config.hindsightContextPrefix + sessionName,
-    config.hindsightContextMaxLength,
+    config.hindsightContextMaxLength
   );
 
   // Concatenate all entries into single content array
@@ -89,13 +95,17 @@ export async function flushAutoQueue(
       tags,
       entities: config.entities.length > 0 ? config.entities : undefined,
     },
-    signal,
+    signal
   );
 
   if (result.success) {
     deleteAutoQueue(sessionId);
   }
-  return { success: result.success, error: result.error, count: result.success ? entries.length : 0 };
+  return {
+    success: result.success,
+    error: result.error,
+    count: result.success ? entries.length : 0,
+  };
 }
 
 /**
@@ -106,7 +116,7 @@ export async function flushAutoQueue(
 export async function flushToolQueue(
   sessionId: string,
   client: HindsightClientWrapper,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; error?: string; count: number }> {
   const entries = readToolQueue(sessionId);
   if (entries.length === 0) {
@@ -136,7 +146,7 @@ export async function flushQueues(
   parentSessionId: string | undefined,
   config: HindsightConfig,
   client: HindsightClientWrapper,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; error?: string; autoCount: number; toolCount: number }> {
   const autoResult = await flushAutoQueue(
     sessionId,
@@ -146,14 +156,10 @@ export async function flushQueues(
     parentSessionId,
     config,
     client,
-    signal,
+    signal
   );
 
-  const toolResult = await flushToolQueue(
-    sessionId,
-    client,
-    signal,
-  );
+  const toolResult = await flushToolQueue(sessionId, client, signal);
 
   return {
     success: autoResult.success && toolResult.success,

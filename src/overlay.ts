@@ -2,8 +2,8 @@
  * Overlay component for displaying recall details.
  */
 
-import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { ThemeColor } from "@mariozechner/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { RecallMessageDetails } from "./index";
 
 /**
@@ -19,7 +19,7 @@ export class RecallOverlayComponent {
     private theme: { fg: (color: ThemeColor, text: string) => string },
     private details: RecallMessageDetails,
     private done: () => void,
-    overlayOptions?: { maxHeight?: number },
+    overlayOptions?: { maxHeight?: number }
   ) {
     // Calculate max content lines (reserve space for title, borders, scroll indicator, help)
     // Layout: title (2 lines) + blank (1 line) + content + blank (1 line) + help (1 line) + borders (2)
@@ -83,7 +83,8 @@ export class RecallOverlayComponent {
       return s + " ".repeat(Math.max(0, len - vis));
     };
 
-    const row = (content: string) => th.fg("border", "│") + pad(content, innerW) + th.fg("border", "│");
+    const row = (content: string) =>
+      th.fg("border", "│") + pad(content, innerW) + th.fg("border", "│");
 
     // Title
     lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
@@ -98,20 +99,22 @@ export class RecallOverlayComponent {
 
     // Add scroll indicator if content overflows
     if (canScrollUp || canScrollDown) {
-      const position = totalLines <= this.maxContentLines
-        ? ""
-        : `${this.scrollOffset + 1}-${Math.min(this.scrollOffset + this.maxContentLines, totalLines)}/${totalLines}`;
+      const position =
+        totalLines <= this.maxContentLines
+          ? ""
+          : `${this.scrollOffset + 1}-${Math.min(this.scrollOffset + this.maxContentLines, totalLines)}/${totalLines}`;
       lines.push(row(th.fg("dim", ` ${position}`)));
     }
 
     // Render visible content lines
     const visibleLines = this.contentLines.slice(
       this.scrollOffset,
-      this.scrollOffset + this.maxContentLines,
+      this.scrollOffset + this.maxContentLines
     );
     for (const line of visibleLines) {
       // Truncate if needed for actual width (wrapping is done in buildContentLines)
-      const paddedLine = visibleWidth(line) <= innerW - 2 ? line : truncateToWidth(line, innerW - 2);
+      const paddedLine =
+        visibleWidth(line) <= innerW - 2 ? line : truncateToWidth(line, innerW - 2);
       lines.push(row(` ${paddedLine}`));
     }
 

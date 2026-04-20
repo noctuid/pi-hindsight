@@ -2,11 +2,11 @@
  * Manual tools for Hindsight memory operations.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
-import type { ExtensionAPI, AgentToolResult } from "@mariozechner/pi-coding-agent";
-import type { RecallResponse, Budget } from "@vectorize-io/hindsight-client";
-import type { HindsightConfig, MemoryType } from "./config";
+import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { type Static, Type } from "@sinclair/typebox";
+import type { Budget, RecallResponse } from "@vectorize-io/hindsight-client";
 import type { HindsightClientWrapper } from "./client";
+import type { HindsightConfig, MemoryType } from "./config";
 import { queueToolRetain } from "./retention";
 import { extractParentSessionId } from "./utils";
 
@@ -25,11 +25,7 @@ const MemoryTypeSchema = Type.Union([
   Type.Literal("observation"),
 ]);
 
-const BudgetSchema = Type.Union([
-  Type.Literal("low"),
-  Type.Literal("mid"),
-  Type.Literal("high"),
-]);
+const BudgetSchema = Type.Union([Type.Literal("low"), Type.Literal("mid"), Type.Literal("high")]);
 
 interface RetainDetails {
   success: boolean;
@@ -50,7 +46,7 @@ interface RecallDetails {
 export function registerTools(
   pi: ExtensionAPI,
   config: HindsightConfig,
-  client: HindsightClientWrapper | null,
+  client: HindsightClientWrapper | null
 ): void {
   if (!config.toolsEnabled) return;
 
@@ -61,11 +57,27 @@ export function registerTools(
     description: `Store information to long-term memory. Hindsight automatically extracts structured facts, resolves entities, and indexes for retrieval. Use this for facts, preferences, decisions, or any information worth remembering for future sessions.`,
     parameters: Type.Object({
       content: Type.String({ description: "The information to store" }),
-      tags: Type.Optional(Type.Array(Type.String(), { description: "Tags for filtering during recall. Use namespaced tags like 'topic:billing' or 'priority:high'." })),
-      metadata: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Additional context included in fact extraction prompt (improves accuracy). Returned with recalled memories for client-side filtering." })),
+      tags: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Tags for filtering during recall. Use namespaced tags like 'topic:billing' or 'priority:high'.",
+        })
+      ),
+      metadata: Type.Optional(
+        Type.Record(Type.String(), Type.String(), {
+          description:
+            "Additional context included in fact extraction prompt (improves accuracy). Returned with recalled memories for client-side filtering.",
+        })
+      ),
     }),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx): Promise<AgentToolResult<RetainDetails>> {
+    async execute(
+      _toolCallId,
+      params,
+      _signal,
+      _onUpdate,
+      ctx
+    ): Promise<AgentToolResult<RetainDetails>> {
       const sessionId = ctx.sessionManager.getSessionId();
       if (!sessionId) {
         return {
@@ -84,7 +96,7 @@ export function registerTools(
         params.metadata,
         ctx.cwd,
         parentSessionId,
-        config,
+        config
       );
       if (!success) {
         return {
@@ -114,14 +126,30 @@ export function registerTools(
 - \`observation\`: Consolidated patterns synthesized from facts (e.g., "User consistently prefers async communication")`,
     parameters: Type.Object({
       query: Type.String({ description: "What to search for" }),
-      tags: Type.Optional(Type.Array(Type.String(), { description: "Filter by tags. A memory tagged 'user:alice' is only returned when tags=['user:alice']." })),
+      tags: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Filter by tags. A memory tagged 'user:alice' is only returned when tags=['user:alice'].",
+        })
+      ),
       tagsMatch: Type.Optional(TagsMatchSchema),
       // TODO: Consider adding tag_groups for complex tag matching (may be unnecessary and overly complex)
-      types: Type.Optional(Type.Array(MemoryTypeSchema, { description: "Filter by memory type. Default: all types. Common alternative would be [\"observation\"] to avoid duplication." })),
+      types: Type.Optional(
+        Type.Array(MemoryTypeSchema, {
+          description:
+            'Filter by memory type. Default: all types. Common alternative would be ["observation"] to avoid duplication.',
+        })
+      ),
       budget: Type.Optional(BudgetSchema),
     }),
 
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<AgentToolResult<RecallDetails>> {
+    async execute(
+      _toolCallId,
+      params,
+      signal,
+      _onUpdate,
+      _ctx
+    ): Promise<AgentToolResult<RecallDetails>> {
       // Use config default if not specified, otherwise use params
       const types = params.types ?? config.recallTypes ?? undefined;
       const result = await client.recall(
@@ -137,7 +165,9 @@ export function registerTools(
 
       if (!result.success) {
         return {
-          content: [{ type: "text", text: `Failed to recall memories: ${result.error ?? "unknown error"}` }],
+          content: [
+            { type: "text", text: `Failed to recall memories: ${result.error ?? "unknown error"}` },
+          ],
           details: { success: false, error: result.error },
         };
       }

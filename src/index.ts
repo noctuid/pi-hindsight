@@ -6,17 +6,21 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { Box, Text } from "@mariozechner/pi-tui";
-import { loadConfig, validateConfig } from "./config";
+import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { HindsightClientWrapper } from "./client";
-import { registerTools } from "./tools";
 import { registerCommands } from "./commands";
-import { queueToolRetain, flushQueues, getQueueCount } from "./retention";
+import { loadConfig, validateConfig } from "./config";
+import { prepareEntry, shouldRetainMessage } from "./prepare";
 import { enqueueAutoMessage } from "./queue";
-import { shouldRetainMessage, prepareEntry } from "./prepare";
-import { extractTextFromContent, getSessionDisplayName, truncate, extractParentSessionId } from "./utils";
-
+import { flushQueues, getQueueCount } from "./retention";
+import { registerTools } from "./tools";
+import {
+  extractParentSessionId,
+  extractTextFromContent,
+  getSessionDisplayName,
+  truncate,
+} from "./utils";
 
 // Runtime toggle for recall display (overrides config)
 let recallDisplayOverride: boolean | null = null;
@@ -38,7 +42,7 @@ export default function (pi: ExtensionAPI) {
   let client: HindsightClientWrapper | null = null;
 
   if (!validation.valid) {
-    console.error("pi-hindsight disabled: " + validation.errors.join(", "));
+    console.error(`pi-hindsight disabled: ${validation.errors.join(", ")}`);
   } else {
     if (warning) {
       console.warn(warning);
@@ -64,7 +68,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     // Verify server is reachable
-    const healthResult = await client!.healthCheck(ctx.signal);
+    const healthResult = await client?.healthCheck(ctx.signal);
     if (healthResult.success) {
       ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
     } else {
@@ -82,39 +86,49 @@ export default function (pi: ExtensionAPI) {
     client,
     () => lastRecallDetails,
     () => recallDisplayOverride,
-    (value) => { recallDisplayOverride = value; },
+    (value) => {
+      recallDisplayOverride = value;
+    },
     {
       configPath,
       envVars,
       warning,
       validationWarnings: validation.warnings,
-    },
+    }
   );
 
   // Register custom message renderer for hindsight-recall messages
-  pi.registerMessageRenderer<RecallMessageDetails>("hindsight-recall", (message, { expanded }, theme) => {
-    const details = message.details;
-    if (!details) return undefined;
+  pi.registerMessageRenderer<RecallMessageDetails>(
+    "hindsight-recall",
+    (message, { expanded }, theme) => {
+      const details = message.details;
+      if (!details) return undefined;
 
-    // Build the display text
-    let text: string;
-    if (expanded) {
-      // When expanded: show the full memory content
-      text = theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
-        theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
-        "\n" + theme.fg("dim", "\u2500".repeat(40)) +
-        "\n" + details.memories;
-    } else {
-      // When collapsed: show summary with snippet
-      text = theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
-        theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
-        " " + theme.fg("dim", `[${details.snippet}]`);
+      // Build the display text
+      let text: string;
+      if (expanded) {
+        // When expanded: show the full memory content
+        text =
+          theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
+          theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
+          "\n" +
+          theme.fg("dim", "\u2500".repeat(40)) +
+          "\n" +
+          details.memories;
+      } else {
+        // When collapsed: show summary with snippet
+        text =
+          theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
+          theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
+          " " +
+          theme.fg("dim", `[${details.snippet}]`);
+      }
+
+      const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
+      box.addChild(new Text(text, 0, 0));
+      return box;
     }
-
-    const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-    box.addChild(new Text(text, 0, 0));
-    return box;
-  });
+  );
 
   // Auto-recall on before_agent_start (visible, persisted to session file)
   // Only fires when recallPersist is true
@@ -136,7 +150,11 @@ export default function (pi: ExtensionAPI) {
     if (!lastUserContent) return;
 
     // Call shared recall helper
-    const result = await doAutoRecall(lastUserContent, ctx.signal, recallDisplayOverride ?? config.recallDisplay);
+    const result = await doAutoRecall(
+      lastUserContent,
+      ctx.signal,
+      recallDisplayOverride ?? config.recallDisplay
+    );
     if (result) {
       return { message: result.recallMessage };
     }
@@ -147,36 +165,42 @@ export default function (pi: ExtensionAPI) {
   // 2. If recallPersist is false, inject recall message (not visible, not persisted, sent to LLM)
   // @ts-expect-error - AgentMessage union includes types without 'content' (e.g., BashExecutionMessage).
   // We filter to user messages with content at runtime.
-  pi.on("context", async (event: { messages: Array<{ role: string; content?: unknown; customType?: string }> }, ctx: ExtensionContext) => {
-    const messages = event.messages;
+  pi.on(
+    "context",
+    async (
+      event: { messages: Array<{ role: string; content?: unknown; customType?: string }> },
+      ctx: ExtensionContext
+    ) => {
+      const messages = event.messages;
 
-    // Always filter out existing hindsight-recall messages from the messages array
-    // This is critical to prevent old recall messages from being sent to the LLM
-    const filteredMessages = messages.filter(msg => msg.customType !== "hindsight-recall");
-    const hadRecallMessages = filteredMessages.length !== messages.length;
+      // Always filter out existing hindsight-recall messages from the messages array
+      // This is critical to prevent old recall messages from being sent to the LLM
+      const filteredMessages = messages.filter((msg) => msg.customType !== "hindsight-recall");
+      const hadRecallMessages = filteredMessages.length !== messages.length;
 
-    // If recallPersist is false and auto-recall is enabled, inject recall here
-    // (not visible, not persisted, but sent to LLM for this turn only)
-    if (client && config.autoRecallEnabled && !config.recallPersist) {
-      // Only trigger recall if the last message is from user
-      const lastMessage = filteredMessages[filteredMessages.length - 1];
-      if (lastMessage && lastMessage.role === "user") {
-        const userMessage = extractTextFromContent(lastMessage.content);
-        if (userMessage) {
-          // Call shared recall helper (always display: false when recallPersist is false)
-          const result = await doAutoRecall(userMessage, ctx.signal, false);
-          if (result) {
-            return { messages: [...filteredMessages, result.recallMessage] };
+      // If recallPersist is false and auto-recall is enabled, inject recall here
+      // (not visible, not persisted, but sent to LLM for this turn only)
+      if (client && config.autoRecallEnabled && !config.recallPersist) {
+        // Only trigger recall if the last message is from user
+        const lastMessage = filteredMessages[filteredMessages.length - 1];
+        if (lastMessage && lastMessage.role === "user") {
+          const userMessage = extractTextFromContent(lastMessage.content);
+          if (userMessage) {
+            // Call shared recall helper (always display: false when recallPersist is false)
+            const result = await doAutoRecall(userMessage, ctx.signal, false);
+            if (result) {
+              return { messages: [...filteredMessages, result.recallMessage] };
+            }
           }
         }
       }
-    }
 
-    // If we filtered out recall messages but didn't inject new ones, return filtered array
-    if (hadRecallMessages) {
-      return { messages: filteredMessages };
+      // If we filtered out recall messages but didn't inject new ones, return filtered array
+      if (hadRecallMessages) {
+        return { messages: filteredMessages };
+      }
     }
-  });
+  );
 
   // Queue messages on message_end event
   pi.on("message_end", async (event, ctx: ExtensionContext) => {
@@ -243,16 +267,11 @@ export default function (pi: ExtensionAPI) {
   async function doAutoRecall(
     query: string,
     signal: AbortSignal | undefined,
-    display: boolean,
+    display: boolean
   ): Promise<{ recallMessage: ReturnType<typeof formatRecallMessage> } | null> {
-    return doAutoRecallImpl(
-      client,
-      query,
-      signal,
-      display,
-      config,
-      (details) => { lastRecallDetails = details; }
-    );
+    return doAutoRecallImpl(client, query, signal, display, config, (details) => {
+      lastRecallDetails = details;
+    });
   }
 
   /**
@@ -261,7 +280,11 @@ export default function (pi: ExtensionAPI) {
    * @param reason - Reason for flush (used in log messages)
    * @param notifyOnError - If true, show UI notification on error
    */
-  async function flushCurrentSession(ctx: ExtensionContext, reason: string, notifyOnError = false): Promise<void> {
+  async function flushCurrentSession(
+    ctx: ExtensionContext,
+    reason: string,
+    notifyOnError = false
+  ): Promise<void> {
     if (!client) return;
 
     const sessionId = ctx.sessionManager.getSessionId();
@@ -275,7 +298,7 @@ export default function (pi: ExtensionAPI) {
     const header = ctx.sessionManager.getHeader();
     const sessionName = getSessionDisplayName(
       ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-      ctx.sessionManager.getEntries.bind(ctx.sessionManager),
+      ctx.sessionManager.getEntries.bind(ctx.sessionManager)
     );
     const parentSessionId = extractParentSessionId(header?.parentSession);
     const result = await flushQueues(
@@ -286,7 +309,7 @@ export default function (pi: ExtensionAPI) {
       parentSessionId,
       config,
       client,
-      ctx.signal,
+      ctx.signal
     );
 
     if (!result.success) {
@@ -295,7 +318,9 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(`Hindsight flush failed: ${result.error}`, "error");
       }
     } else if (result.autoCount > 0 || result.toolCount > 0) {
-      console.log(`pi-hindsight: Flushed ${result.autoCount} auto + ${result.toolCount} tool entries`);
+      console.log(
+        `pi-hindsight: Flushed ${result.autoCount} auto + ${result.toolCount} tool entries`
+      );
     }
   }
 }
@@ -332,8 +357,15 @@ export function formatRecallMessage(
   results: RecallResponse["results"],
   preamble: string,
   showDateTime: boolean,
-  display: boolean = false,
-): { role: "custom"; customType: string; content: string; display: boolean; timestamp: number; details: RecallMessageDetails } {
+  display: boolean = false
+): {
+  role: "custom";
+  customType: string;
+  content: string;
+  display: boolean;
+  timestamp: number;
+  details: RecallMessageDetails;
+} {
   const memories = results.map((r) => r.text).join("\n\n---\n\n");
 
   // Build content with preamble first, then optional date/time, then memories
@@ -344,15 +376,18 @@ export function formatRecallMessage(
 
   if (showDateTime) {
     const now = new Date();
-    const dateStr = now.getFullYear() + "-" +
-      String(now.getMonth() + 1).padStart(2, "0") + "-" +
+    const dateStr =
+      now.getFullYear() +
+      "-" +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      "-" +
       String(now.getDate()).padStart(2, "0");
-    const timeStr = String(now.getHours()).padStart(2, "0") + ":" +
-      String(now.getMinutes()).padStart(2, "0");
+    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     // Get timezone abbreviation (e.g., "EST", "PST", "UTC")
-    const timeZone = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
-      .formatToParts(now)
-      .find(p => p.type === "timeZoneName")?.value ?? "";
+    const timeZone =
+      new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+        .formatToParts(now)
+        .find((p) => p.type === "timeZoneName")?.value ?? "";
     innerParts.push(`Current date and time: ${dateStr} ${timeStr} ${timeZone}`.trim());
   }
 
@@ -365,7 +400,13 @@ ${innerParts.join("\n\n")}
 
   // Build details for custom renderer
   const count = results.length;
-  const snippet = truncate(results.slice(0, 3).map(r => r.text).join(" \u00b7 "), 200);
+  const snippet = truncate(
+    results
+      .slice(0, 3)
+      .map((r) => r.text)
+      .join(" \u00b7 "),
+    200
+  );
 
   return {
     role: "custom",
@@ -382,10 +423,7 @@ ${innerParts.join("\n\n")}
  * Returns plain text suitable for testing (no ANSI codes).
  * Exported for testing.
  */
-export function renderRecallMessage(
-  details: RecallMessageDetails,
-  expanded: boolean,
-): string {
+export function renderRecallMessage(details: RecallMessageDetails, expanded: boolean): string {
   if (expanded) {
     // When expanded: show the full memory content
     return `Hindsight recalled ${details.count} ${details.count === 1 ? "memory" : "memories"}\n${"\u2500".repeat(40)}\n${details.memories}`;
@@ -400,7 +438,10 @@ export function renderRecallMessage(
  * Minimal interface for dependency injection in testing.
  */
 export interface RecallClient {
-  recall: (options: { query: string; types?: ("world" | "experience" | "observation")[] }, signal: AbortSignal | undefined) => Promise<{
+  recall: (
+    options: { query: string; types?: ("world" | "experience" | "observation")[] },
+    signal: AbortSignal | undefined
+  ) => Promise<{
     success: boolean;
     response?: RecallResponse;
     error?: string;
@@ -437,7 +478,7 @@ export async function doAutoRecallImpl(
   signal: AbortSignal | undefined,
   display: boolean,
   config: AutoRecallConfig,
-  cacheDetails: (details: RecallMessageDetails | null) => void,
+  cacheDetails: (details: RecallMessageDetails | null) => void
 ): Promise<{ recallMessage: ReturnType<typeof formatRecallMessage> } | null> {
   if (!client) return null;
 
@@ -447,7 +488,10 @@ export async function doAutoRecallImpl(
   try {
     // Create a fallback signal if none provided
     const abortSignal = signal ?? new AbortController().signal;
-    const result = await client.recall({ query: truncatedQuery, types: config.recallTypes ?? undefined }, abortSignal);
+    const result = await client.recall(
+      { query: truncatedQuery, types: config.recallTypes ?? undefined },
+      abortSignal
+    );
 
     if (!result.success) {
       console.warn("Auto-recall failed:", result.error);
@@ -459,7 +503,12 @@ export async function doAutoRecallImpl(
     const results = response?.results ?? [];
 
     if (results.length > 0) {
-      const recallMessage = formatRecallMessage(results, config.recallPromptPreamble, config.recallShowDateTime, display);
+      const recallMessage = formatRecallMessage(
+        results,
+        config.recallPromptPreamble,
+        config.recallShowDateTime,
+        display
+      );
       // Cache recall details for show-recall command
       cacheDetails(recallMessage.details);
       return { recallMessage };
@@ -473,5 +522,3 @@ export async function doAutoRecallImpl(
     return null;
   }
 }
-
-

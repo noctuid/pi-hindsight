@@ -2,7 +2,14 @@
  * Hindsight client wrapper with timeout and error handling.
  */
 
-import { HindsightClient, HindsightError, type RecallResponse, type Budget, type MemoryItemInput, type EntityInput } from "@vectorize-io/hindsight-client";
+import {
+  type Budget,
+  type EntityInput,
+  HindsightClient,
+  HindsightError,
+  type MemoryItemInput,
+  type RecallResponse,
+} from "@vectorize-io/hindsight-client";
 import type { HindsightConfig } from "./config";
 
 export interface RetainOptions {
@@ -40,7 +47,10 @@ export class HindsightClientWrapper {
   /**
    * Check server health by pinging the health endpoint.
    */
-  async healthCheck(signal?: AbortSignal, timeoutMs: number = 5000): Promise<{ success: boolean; error?: string }> {
+  async healthCheck(
+    signal?: AbortSignal,
+    timeoutMs: number = 5000
+  ): Promise<{ success: boolean; error?: string }> {
     const controller = new AbortController();
     let timedOut = false;
 
@@ -80,7 +90,7 @@ export class HindsightClientWrapper {
       return { success: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
       if (abortHandler) {
-        signal!.removeEventListener("abort", abortHandler);
+        signal?.removeEventListener("abort", abortHandler);
       }
     }
   }
@@ -179,7 +189,7 @@ export class HindsightClientWrapper {
 
       // Handle abort signal
       const abortHandler = () => {
-        signal!.removeEventListener("abort", abortHandler);
+        signal?.removeEventListener("abort", abortHandler);
         clearTimeout(timer);
         reject(new Error("Operation aborted"));
       };

@@ -10,7 +10,7 @@ import type { HindsightConfig, RetainContent } from "./config";
  */
 export function shouldRetainMessage(
   message: Record<string, unknown>,
-  retainContent: RetainContent,
+  retainContent: RetainContent
 ): boolean {
   const role = message.role as string;
   if (role === "user" || role === "assistant") {
@@ -29,7 +29,7 @@ export function shouldRetainMessage(
 export function filterContent(
   content: unknown,
   role: string,
-  retainContent: RetainContent,
+  retainContent: RetainContent
 ): unknown {
   if (!Array.isArray(content)) {
     return content;
@@ -55,10 +55,7 @@ export function filterContent(
  * Strip specified fields from an object (mutates in place).
  * Only strips if the field exists.
  */
-function stripFields<T extends Record<string, unknown>>(
-  obj: T,
-  fields: string[],
-): void {
+function stripFields<T extends Record<string, unknown>>(obj: T, fields: string[]): void {
   for (const field of fields) {
     if (field in obj) {
       delete obj[field as keyof T];
@@ -77,15 +74,16 @@ function stripFields<T extends Record<string, unknown>>(
  */
 export function prepareEntry(
   entry: Record<string, unknown>,
-  config: Pick<HindsightConfig, "retainContent" | "strip">,
+  config: Pick<HindsightConfig, "retainContent" | "strip">
 ): Record<string, unknown> {
   // Clone entry with deep copy of message to avoid mutating original
   const message = entry.message;
   const stripped: Record<string, unknown> = {
     ...entry,
-    message: message && typeof message === "object" && !Array.isArray(message)
-      ? { ...message as Record<string, unknown> }
-      : message,
+    message:
+      message && typeof message === "object" && !Array.isArray(message)
+        ? { ...(message as Record<string, unknown>) }
+        : message,
   };
 
   // Get message object
