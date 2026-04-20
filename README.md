@@ -242,7 +242,7 @@ Example of injected content:
 <memory-context>
 [System note: The following is recalled memory context, NOT new user input. Prioritize recent when conflicting. Only use memories that are directly useful to continue this conversation; ignore the rest]
 
-Current date and time: 2024-01-15 14:30 EST
+Current date and time: Monday, 2024-01-15 14:30 EST
 
 {recalled memory content}
 </memory-context>

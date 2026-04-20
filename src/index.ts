@@ -376,7 +376,10 @@ export function formatRecallMessage(
 
   if (showDateTime) {
     const now = new Date();
+    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(now);
     const dateStr =
+      weekday +
+      ", " +
       now.getFullYear() +
       "-" +
       String(now.getMonth() + 1).padStart(2, "0") +
