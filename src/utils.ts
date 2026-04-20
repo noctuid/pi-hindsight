@@ -2,7 +2,7 @@
  * Shared utility functions.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 /**
  * Truncate a string to max character count (code points, not code units).
@@ -17,7 +17,7 @@ export function truncate(str: string, maxChars: number): string {
   const chars = [...str]; // Splits by code point
   if (chars.length <= maxChars) return str;
   if (maxChars < 1) return chars.slice(0, maxChars).join("");
-  return chars.slice(0, maxChars - 1).join("") + "…";
+  return `${chars.slice(0, maxChars - 1).join("")}…`;
 }
 
 /**
@@ -82,7 +82,7 @@ export function extractTextFromContent(content: unknown): string | null {
  */
 export function getSessionDisplayName(
   getSessionName: () => string | undefined,
-  getEntries: () => Array<{ type: string; message?: { role?: string; content?: unknown } }>,
+  getEntries: () => Array<{ type: string; message?: { role?: string; content?: unknown } }>
 ): string {
   // Try manual title first
   const name = getSessionName();

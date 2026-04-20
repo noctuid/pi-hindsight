@@ -2,10 +2,10 @@
  * Document building from pi session files.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { HindsightConfig, RetainContent } from "./config";
-import { truncate, extractTextFromContent } from "./utils";
-import { filterContent, shouldRetainMessage, prepareEntry } from "./prepare";
+import { prepareEntry, shouldRetainMessage } from "./prepare";
+import { extractTextFromContent, truncate } from "./utils";
 
 export interface SessionHeader {
   type: "session";
@@ -39,7 +39,10 @@ export interface DocumentContent {
  * Parse a session file and return header + entries.
  * Skips malformed JSON lines with a warning.
  */
-export function parseSessionFile(sessionPath: string): { header: SessionHeader; entries: SessionEntry[] } {
+export function parseSessionFile(sessionPath: string): {
+  header: SessionHeader;
+  entries: SessionEntry[];
+} {
   const content = readFileSync(sessionPath, "utf-8");
   const lines = content.trim().split("\n");
 
@@ -125,7 +128,7 @@ function buildForkedContent(
   parentAssistantIds: Set<string>,
   config: Pick<HindsightConfig, "retainContent" | "strip">
 ): { content: string; documentId: string } {
-  const conversationEntries = entries.filter(e => isConversationMessage(e, config.retainContent));
+  const conversationEntries = entries.filter((e) => isConversationMessage(e, config.retainContent));
 
   // Find first assistant with id NOT in parent
   const forkPoint = findForkPoint(conversationEntries, parentAssistantIds);
@@ -137,7 +140,9 @@ function buildForkedContent(
 
   // Walk backward in conversationEntries to find the previous user message
   const startIndex = findForkStartIndex(conversationEntries, forkPoint);
-  const content = JSON.stringify(conversationEntries.slice(startIndex).map(e => formatEntry(e, config)));
+  const content = JSON.stringify(
+    conversationEntries.slice(startIndex).map((e) => formatEntry(e, config))
+  );
 
   return {
     content,
@@ -153,20 +158,15 @@ function findForkPoint(
   conversationEntries: SessionEntry[],
   parentAssistantIds: Set<string>
 ): number {
-  return conversationEntries.findIndex(e =>
-    e.message?.role === "assistant" &&
-    e.id &&
-    !parentAssistantIds.has(e.id)
+  return conversationEntries.findIndex(
+    (e) => e.message?.role === "assistant" && e.id && !parentAssistantIds.has(e.id)
   );
 }
 
 /**
  * Find the start index for fork content (user message before fork point).
  */
-function findForkStartIndex(
-  conversationEntries: SessionEntry[],
-  forkPoint: number
-): number {
+function findForkStartIndex(conversationEntries: SessionEntry[], forkPoint: number): number {
   for (let i = forkPoint - 1; i >= 0; i--) {
     const entry = conversationEntries[i];
     if (entry && entry.message?.role === "user") {
@@ -179,10 +179,7 @@ function findForkStartIndex(
 /**
  * Truncate session title for Hindsight context field.
  */
-function truncateSessionTitle(
-  entries: SessionEntry[],
-  config: HindsightConfig
-): string {
+function truncateSessionTitle(entries: SessionEntry[], config: HindsightConfig): string {
   // Find first user message or use session name
   for (const entry of entries) {
     if (entry.type === "message" && entry.message?.role === "user") {
@@ -193,7 +190,7 @@ function truncateSessionTitle(
     }
   }
 
-  return config.hindsightContextPrefix + "pi session";
+  return `${config.hindsightContextPrefix}pi session`;
 }
 
 /**
@@ -211,7 +208,7 @@ export function buildDocumentContent(
       const parentAssistantIds = loadParentAssistantIds(header.parentSession);
       const result = buildForkedContent(entries, header, parentAssistantIds, config);
       return result;
-    } catch (e) {
+    } catch (_e) {
       return {
         content: "[]",
         documentId: `session:${header.id}`,
@@ -243,7 +240,7 @@ export function buildMessageArrayFromSession(
     try {
       const parentAssistantIds = loadParentAssistantIds(header.parentSession);
       return buildForkedMessages(entries, header, parentAssistantIds, config);
-    } catch (e) {
+    } catch (_e) {
       return {
         messages: [],
         documentId: `session:${header.id}`,
@@ -267,8 +264,8 @@ function buildMessageArray(
   entries: SessionEntry[],
   config: Pick<HindsightConfig, "retainContent" | "strip">
 ): object[] {
-  const conversationEntries = entries.filter(e => isConversationMessage(e, config.retainContent));
-  return conversationEntries.map(e => formatEntry(e, config));
+  const conversationEntries = entries.filter((e) => isConversationMessage(e, config.retainContent));
+  return conversationEntries.map((e) => formatEntry(e, config));
 }
 
 /**
@@ -280,7 +277,7 @@ function buildForkedMessages(
   parentAssistantIds: Set<string>,
   config: Pick<HindsightConfig, "retainContent" | "strip">
 ): { messages: object[]; documentId: string; warning?: string } {
-  const conversationEntries = entries.filter(e => isConversationMessage(e, config.retainContent));
+  const conversationEntries = entries.filter((e) => isConversationMessage(e, config.retainContent));
 
   // Find first assistant with id NOT in parent
   const forkPoint = findForkPoint(conversationEntries, parentAssistantIds);
@@ -291,7 +288,7 @@ function buildForkedMessages(
 
   // Walk backward in conversationEntries to find the previous user message
   const startIndex = findForkStartIndex(conversationEntries, forkPoint);
-  const messages = conversationEntries.slice(startIndex).map(e => formatEntry(e, config));
+  const messages = conversationEntries.slice(startIndex).map((e) => formatEntry(e, config));
 
   return {
     messages,

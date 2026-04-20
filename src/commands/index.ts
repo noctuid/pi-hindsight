@@ -2,19 +2,27 @@
  * Slash commands for pi-hindsight.
  */
 
-import { writeFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { HindsightConfig } from "../config";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
+import type { HindsightConfig } from "../config";
 import type { RecallMessageDetails } from "../index";
+import { RecallOverlayComponent } from "../overlay";
 import { flushQueues, getQueueCount } from "../retention";
 import { getSessionDisplayName } from "../utils";
-import { RecallOverlayComponent } from "../overlay";
+
+interface Subcommand {
+  description: string;
+  handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+  getArgumentCompletions?: (
+    argumentPrefix: string
+  ) => Promise<Array<{ label: string; value: string }> | null>;
+}
 
 /**
- * Register all slash commands.
+ * Register the /hindsight command with subcommands.
  */
 export function registerCommands(
   pi: ExtensionAPI,
@@ -28,145 +36,216 @@ export function registerCommands(
     envVars: string[];
     warning?: string;
     validationWarnings: string[];
-  },
+  }
 ): void {
-  // /hindsight-flush - Flush current session's queue
-  pi.registerCommand("hindsight-flush", {
-    description: "Flush queued messages to Hindsight",
-    handler: async (args: string, ctx: ExtensionContext) => {
-      if (!client) {
-        ctx.ui.notify("Hindsight not configured", "error");
-        return;
-      }
+  const subcommands: Record<string, Subcommand> = {
+    flush: {
+      description: "Flush queued messages to Hindsight",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        if (!client) {
+          ctx.ui.notify("Hindsight not configured", "error");
+          return;
+        }
 
-      const sessionId = ctx.sessionManager.getSessionId();
-      if (!sessionId) {
-        ctx.ui.notify("No active session", "error");
-        return;
-      }
+        const sessionId = ctx.sessionManager.getSessionId();
+        if (!sessionId) {
+          ctx.ui.notify("No active session", "error");
+          return;
+        }
 
-      const count = getQueueCount(sessionId);
-      if (count === 0) {
-        ctx.ui.notify("No messages queued", "info");
-        return;
-      }
+        const count = getQueueCount(sessionId);
+        if (count === 0) {
+          ctx.ui.notify("No messages queued", "info");
+          return;
+        }
 
-      const header = ctx.sessionManager.getHeader();
-      const sessionName = getSessionDisplayName(
-        ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-        ctx.sessionManager.getEntries.bind(ctx.sessionManager),
-      );
-      const sessionStartTime = header?.timestamp || new Date().toISOString();
-      const sessionCwd = header?.cwd || ctx.cwd;
-      const parentSessionId = header?.parentSession;
+        const header = ctx.sessionManager.getHeader();
+        const sessionName = getSessionDisplayName(
+          ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
+          ctx.sessionManager.getEntries.bind(ctx.sessionManager)
+        );
+        const sessionStartTime = header?.timestamp || new Date().toISOString();
+        const sessionCwd = header?.cwd || ctx.cwd;
+        const parentSessionId = header?.parentSession;
 
-      ctx.ui.notify(`Flushing ${count} messages...`, "info");
+        ctx.ui.notify(`Flushing ${count} messages...`, "info");
 
-      const result = await flushQueues(
-        sessionId,
-        sessionName,
-        sessionStartTime,
-        sessionCwd,
-        parentSessionId,
-        config,
-        client,
-        ctx.signal,
-      );
+        const result = await flushQueues(
+          sessionId,
+          sessionName,
+          sessionStartTime,
+          sessionCwd,
+          parentSessionId,
+          config,
+          client,
+          ctx.signal
+        );
 
-      if (result.success) {
-        ctx.ui.notify(`Flushed ${result.autoCount} auto + ${result.toolCount} tool entries`, "info");
-      } else {
-        ctx.ui.notify(`Flush failed: ${result.error}`, "error");
-      }
+        if (result.success) {
+          ctx.ui.notify(
+            `Flushed ${result.autoCount} auto + ${result.toolCount} tool entries`,
+            "info"
+          );
+        } else {
+          ctx.ui.notify(`Flush failed: ${result.error}`, "error");
+        }
+      },
     },
-  });
 
-  // /hindsight-parse-session - Parse current session to file
-  pi.registerCommand("hindsight-parse-session", {
-    description: "Parse current session to file for manual review",
-    handler: async (args: string, ctx: ExtensionContext) => {
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      if (!sessionFile || !existsSync(sessionFile)) {
-        ctx.ui.notify("No session file found", "error");
-        return;
-      }
+    "parse-session": {
+      description: "Parse current session to file for manual review",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        const sessionFile = ctx.sessionManager.getSessionFile();
+        if (!sessionFile || !existsSync(sessionFile)) {
+          ctx.ui.notify("No session file found", "error");
+          return;
+        }
 
-      const { parseSessionFile, buildDocumentTags, getHindsightContext, buildMessageArrayFromSession } = await import("../document");
+        const {
+          parseSessionFile,
+          buildDocumentTags,
+          getHindsightContext,
+          buildMessageArrayFromSession,
+        } = await import("../document");
 
-      const { header } = parseSessionFile(sessionFile);
+        const { header } = parseSessionFile(sessionFile);
 
-      // Build messages with fork detection
-      const { messages, documentId, warning } = buildMessageArrayFromSession(sessionFile, config);
+        // Build messages with fork detection
+        const { messages, documentId, warning } = buildMessageArrayFromSession(sessionFile, config);
 
-      if (messages.length === 0) {
-        ctx.ui.notify("No messages to parse" + (warning ? ` (${warning})` : ""), "warning");
-        return;
-      }
+        if (messages.length === 0) {
+          ctx.ui.notify(`No messages to parse${warning ? ` (${warning})` : ""}`, "warning");
+          return;
+        }
 
-      const sessionName = getSessionDisplayName(
-        ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-        ctx.sessionManager.getEntries.bind(ctx.sessionManager),
-      );
+        const sessionName = getSessionDisplayName(
+          ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
+          ctx.sessionManager.getEntries.bind(ctx.sessionManager)
+        );
 
-      // Build output - matches Hindsight retain API structure (minus updateMode)
-      const parsedSession: {
-        documentId: string;
-        context: string;
-        tags: string[];
-        timestamp: string;
-        messages: object[];
-        parsedAt: string;
-        warning?: string;
-      } = {
-        documentId,
-        context: getHindsightContext(sessionFile, config, sessionName),
-        tags: buildDocumentTags(header, config),
-        timestamp: header.timestamp,
-        messages,
-        parsedAt: new Date().toISOString(),
-      };
+        // Build output - matches Hindsight retain API structure (minus updateMode)
+        const parsedSession: {
+          documentId: string;
+          context: string;
+          tags: string[];
+          timestamp: string;
+          messages: object[];
+          parsedAt: string;
+          warning?: string;
+        } = {
+          documentId,
+          context: getHindsightContext(sessionFile, config, sessionName),
+          tags: buildDocumentTags(header, config),
+          timestamp: header.timestamp,
+          messages,
+          parsedAt: new Date().toISOString(),
+        };
 
-      if (warning) {
-        parsedSession.warning = warning;
-      }
+        if (warning) {
+          parsedSession.warning = warning;
+        }
 
-      // Write to parsed-sessions directory
-      const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      if (!existsSync(parsedDir)) {
-        mkdirSync(parsedDir, { recursive: true });
-      }
+        // Write to parsed-sessions directory
+        const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
+        if (!existsSync(parsedDir)) {
+          mkdirSync(parsedDir, { recursive: true });
+        }
 
-      const outputPath = join(parsedDir, `${header.id}.jsonl`);
-      writeFileSync(outputPath, JSON.stringify(parsedSession) + "\n", "utf8");
+        const outputPath = join(parsedDir, `${header.id}.jsonl`);
+        writeFileSync(outputPath, `${JSON.stringify(parsedSession)}\n`, "utf8");
 
-      ctx.ui.notify(`Parsed session saved to: ${outputPath}`, "info");
+        ctx.ui.notify(`Parsed session saved to: ${outputPath}`, "info");
+      },
     },
-  });
 
-  // /hindsight-upsert-parsed-session - Upsert a parsed session
-  pi.registerCommand("hindsight-upsert-parsed-session", {
-    description: "Upsert a parsed session to Hindsight",
-    getArgumentCompletions: (argumentPrefix: string) => {
-      const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      if (!existsSync(parsedDir)) return null;
+    "upsert-parsed-session": {
+      description: "Upsert a parsed session to Hindsight (selects if no ID given)",
+      getArgumentCompletions: async (argumentPrefix: string) => {
+        const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
+        if (!existsSync(parsedDir)) return null;
 
-      const files = readdirSync(parsedDir)
-        .filter((f) => f.endsWith(".jsonl") && f.includes(argumentPrefix))
-        .map((f) => ({ label: f.replace(".jsonl", ""), value: f.replace(".jsonl", "") }));
+        const files = readdirSync(parsedDir)
+          .filter((f) => f.endsWith(".jsonl") && f.includes(argumentPrefix))
+          .map((f) => ({ label: f.replace(".jsonl", ""), value: f.replace(".jsonl", "") }));
 
-      return files.length > 0 ? files : null;
+        return files.length > 0 ? files : null;
+      },
+      handler: async (args: string, ctx: ExtensionContext) => {
+        if (!client) {
+          ctx.ui.notify("Hindsight not configured", "error");
+          return;
+        }
+
+        const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
+        let sessionId = args.trim();
+
+        // List available sessions if no ID provided
+        if (!sessionId) {
+          if (!existsSync(parsedDir)) {
+            ctx.ui.notify("No parsed sessions found", "error");
+            return;
+          }
+
+          const files = readdirSync(parsedDir).filter((f) => f.endsWith(".jsonl"));
+          if (files.length === 0) {
+            ctx.ui.notify("No parsed sessions found", "error");
+            return;
+          }
+
+          // Use select to let user pick
+          const options = files.map((f) => f.replace(".jsonl", ""));
+          const answer = await ctx.ui.select("Select session to upsert:", options);
+
+          if (!answer) {
+            return;
+          }
+          sessionId = answer;
+        }
+
+        const parsedPath = join(
+          parsedDir,
+          sessionId.endsWith(".jsonl") ? sessionId : `${sessionId}.jsonl`
+        );
+        if (!existsSync(parsedPath)) {
+          ctx.ui.notify(`Parsed session not found: ${sessionId}`, "error");
+          return;
+        }
+
+        const parsed = JSON.parse(readFileSync(parsedPath, "utf8"));
+
+        ctx.ui.notify(`Upserting session ${sessionId}...`, "info");
+
+        const content = JSON.stringify(parsed.messages);
+        const result = await client.retain(
+          {
+            content,
+            documentId: parsed.documentId,
+            context: parsed.context,
+            timestamp: parsed.timestamp,
+            tags: parsed.tags,
+            updateMode: "replace",
+            entities: config.entities.length > 0 ? config.entities : undefined,
+          },
+          ctx.signal
+        );
+
+        if (result.success) {
+          ctx.ui.notify(`Session ${sessionId} upserted successfully`, "info");
+        } else {
+          ctx.ui.notify(`Upsert failed: ${result.error}`, "error");
+        }
+      },
     },
-    handler: async (args: string, ctx: ExtensionContext) => {
-      if (!client) {
-        ctx.ui.notify("Hindsight not configured", "error");
-        return;
-      }
 
-      const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      let sessionId = args.trim();
+    "upsert-all-parsed": {
+      description: "Upsert all parsed sessions to Hindsight",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        if (!client) {
+          ctx.ui.notify("Hindsight not configured", "error");
+          return;
+        }
 
-      // List available sessions if no ID provided
-      if (!sessionId) {
+        const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
         if (!existsSync(parsedDir)) {
           ctx.ui.notify("No parsed sessions found", "error");
           return;
@@ -178,261 +257,264 @@ export function registerCommands(
           return;
         }
 
-        // Use select to let user pick
-        const options = files.map((f) => f.replace(".jsonl", ""));
-        const answer = await ctx.ui.select("Select session to upsert:", options);
+        ctx.ui.notify(`Upserting ${files.length} parsed sessions...`, "info");
 
-        if (!answer) {
+        let successCount = 0;
+        let failCount = 0;
+        const errors: string[] = [];
+
+        for (const file of files) {
+          const parsedPath = join(parsedDir, file);
+          const sessionId = file.replace(".jsonl", "");
+
+          try {
+            const parsed = JSON.parse(readFileSync(parsedPath, "utf8"));
+            const content = JSON.stringify(parsed.messages);
+            const result = await client.retain(
+              {
+                content,
+                documentId: parsed.documentId,
+                context: parsed.context,
+                timestamp: parsed.timestamp,
+                tags: parsed.tags,
+                updateMode: "replace",
+              },
+              ctx.signal
+            );
+
+            if (result.success) {
+              successCount++;
+            } else {
+              failCount++;
+              errors.push(`${sessionId}: ${result.error}`);
+            }
+          } catch (e) {
+            failCount++;
+            const message = e instanceof Error ? e.message : String(e);
+            errors.push(`${sessionId}: ${message}`);
+          }
+        }
+
+        if (failCount === 0) {
+          ctx.ui.notify(`Successfully upserted ${successCount} sessions`, "info");
+        } else {
+          console.error("pi-hindsight: Upsert errors:", errors.join("; "));
+          ctx.ui.notify(`Upserted ${successCount} sessions, ${failCount} failed`, "error");
+        }
+      },
+    },
+
+    "queue-status": {
+      description: "Show queued message count",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        const sessionId = ctx.sessionManager.getSessionId();
+        if (!sessionId) {
+          ctx.ui.notify("No active session", "error");
           return;
         }
-        sessionId = answer;
-      }
 
-      const parsedPath = join(parsedDir, sessionId.endsWith(".jsonl") ? sessionId : `${sessionId}.jsonl`);
-      if (!existsSync(parsedPath)) {
-        ctx.ui.notify(`Parsed session not found: ${sessionId}`, "error");
-        return;
-      }
-
-      const parsed = JSON.parse(readFileSync(parsedPath, "utf8"));
-
-      ctx.ui.notify(`Upserting session ${sessionId}...`, "info");
-
-      const content = JSON.stringify(parsed.messages);
-      const result = await client.retain(
-        {
-          content,
-          documentId: parsed.documentId,
-          context: parsed.context,
-          timestamp: parsed.timestamp,
-          tags: parsed.tags,
-          updateMode: "replace",
-          entities: config.entities.length > 0 ? config.entities : undefined,
-        },
-        ctx.signal,
-      );
-
-      if (result.success) {
-        ctx.ui.notify(`Session ${sessionId} upserted successfully`, "info");
-      } else {
-        ctx.ui.notify(`Upsert failed: ${result.error}`, "error");
-      }
+        const count = getQueueCount(sessionId);
+        ctx.ui.notify(`${count} messages queued`, "info");
+      },
     },
-  });
 
-  // /hindsight-upsert-all-parsed - Upsert all parsed sessions
-  pi.registerCommand("hindsight-upsert-all-parsed", {
-    description: "Upsert all parsed sessions to Hindsight",
-    handler: async (args: string, ctx: ExtensionContext) => {
-      if (!client) {
-        ctx.ui.notify("Hindsight not configured", "error");
-        return;
-      }
-
-      const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      if (!existsSync(parsedDir)) {
-        ctx.ui.notify("No parsed sessions found", "error");
-        return;
-      }
-
-      const files = readdirSync(parsedDir).filter((f) => f.endsWith(".jsonl"));
-      if (files.length === 0) {
-        ctx.ui.notify("No parsed sessions found", "error");
-        return;
-      }
-
-      ctx.ui.notify(`Upserting ${files.length} parsed sessions...`, "info");
-
-      let successCount = 0;
-      let failCount = 0;
-      const errors: string[] = [];
-
-      for (const file of files) {
-        const parsedPath = join(parsedDir, file);
-        const sessionId = file.replace(".jsonl", "");
-
-        try {
-          const parsed = JSON.parse(readFileSync(parsedPath, "utf8"));
-          const content = JSON.stringify(parsed.messages);
-          const result = await client.retain(
-            {
-              content,
-              documentId: parsed.documentId,
-              context: parsed.context,
-              timestamp: parsed.timestamp,
-              tags: parsed.tags,
-              updateMode: "replace",
-            },
-            ctx.signal,
+    "toggle-display": {
+      description: "Toggle recall message display",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        // Cannot toggle when recallPersist is false (context event never shows in TUI)
+        if (!config.recallPersist) {
+          ctx.ui.notify(
+            "Cannot toggle display: recallPersist is false (context event never shows in TUI)",
+            "warning"
           );
+          return;
+        }
+        // Toggle from current state (default from config)
+        const currentState = getRecallDisplayOverride() ?? config.recallDisplay;
+        setRecallDisplayOverride(!currentState);
+        ctx.ui.notify(`Recall display: ${!currentState ? "visible" : "hidden"}`, "info");
+      },
+    },
 
-          if (result.success) {
-            successCount++;
-          } else {
-            failCount++;
-            errors.push(`${sessionId}: ${result.error}`);
+    popup: {
+      description: "Pop up last recalled messages in overlay",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        const recallDetails = getRecallDetails();
+        if (recallDetails === null) {
+          ctx.ui.notify("No recall this session", "info");
+          return;
+        }
+
+        // Show recall in overlay popup
+        await ctx.ui.custom<void>(
+          (_tui, theme, _keybindings, done) =>
+            new RecallOverlayComponent(theme, recallDetails, done, { maxHeight: 30 }),
+          {
+            overlay: true,
+            overlayOptions: { anchor: "center", width: 80, maxHeight: 30 },
           }
-        } catch (e) {
-          failCount++;
-          const message = e instanceof Error ? e.message : String(e);
-          errors.push(`${sessionId}: ${message}`);
-        }
-      }
-
-      if (failCount === 0) {
-        ctx.ui.notify(`Successfully upserted ${successCount} sessions`, "info");
-      } else {
-        console.error("pi-hindsight: Upsert errors:", errors.join("; "));
-        ctx.ui.notify(`Upserted ${successCount} sessions, ${failCount} failed`, "error");
-      }
+        );
+      },
     },
-  });
 
-  // /hindsight-queue-status - Show queue status
-  pi.registerCommand("hindsight-queue-status", {
-    description: "Show queued message count",
-    handler: async (args: string, ctx: ExtensionContext) => {
-      const sessionId = ctx.sessionManager.getSessionId();
-      if (!sessionId) {
-        ctx.ui.notify("No active session", "error");
-        return;
-      }
+    status: {
+      description: "Show operational status (connection, session, recall)",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        const lines: string[] = [];
 
-      const count = getQueueCount(sessionId);
-      ctx.ui.notify(`${count} messages queued`, "info");
-    },
-  });
-
-  // /hindsight-toggle-display - Toggle recall message display
-  pi.registerCommand("hindsight-toggle-display", {
-    description: "Toggle recall message display",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      // Cannot toggle when recallPersist is false (context event never shows in TUI)
-      if (!config.recallPersist) {
-        ctx.ui.notify("Cannot toggle display: recallPersist is false (context event never shows in TUI)", "warning");
-        return;
-      }
-      // Toggle from current state (default from config)
-      const currentState = getRecallDisplayOverride() ?? config.recallDisplay;
-      setRecallDisplayOverride(!currentState);
-      ctx.ui.notify(`Recall display: ${!currentState ? "visible" : "hidden"}`, "info");
-    },
-  });
-
-  // /hindsight-popup - Pop up last recalled messages in overlay
-  pi.registerCommand("hindsight-popup", {
-    description: "Pop up last recalled messages in overlay",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      const recallDetails = getRecallDetails();
-      if (recallDetails === null) {
-        ctx.ui.notify("No recall this session", "info");
-        return;
-      }
-
-      // Show recall in overlay popup
-      await ctx.ui.custom<void>(
-        (_tui, theme, _keybindings, done) => new RecallOverlayComponent(theme, recallDetails, done, { maxHeight: 30 }),
-        {
-          overlay: true,
-          overlayOptions: { anchor: "center", width: 80, maxHeight: 30 },
-        },
-      );
-    },
-  });
-
-  // /hindsight-status - Show operational status
-  pi.registerCommand("hindsight-status", {
-    description: "Show operational status",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      const lines: string[] = [];
-
-      // Connection status
-      lines.push("== Connection ==");
-      if (client) {
-        const healthResult = await client.healthCheck(ctx.signal);
-        if (healthResult.success) {
-          lines.push("  Server: reachable");
+        // Connection status
+        lines.push("== Connection ==");
+        if (client) {
+          const healthResult = await client.healthCheck(ctx.signal);
+          if (healthResult.success) {
+            lines.push("  Server: reachable");
+          } else {
+            lines.push(`  Server: unreachable (${healthResult.error})`);
+          }
         } else {
-          lines.push(`  Server: unreachable (${healthResult.error})`);
+          lines.push("  Server: not configured");
         }
-      } else {
-        lines.push("  Server: not configured");
-      }
 
-      // Bank and session info
-      lines.push("\n== Session ==");
-      lines.push(`  Bank ID: ${config.bankId}`);
-      const sessionId = ctx.sessionManager.getSessionId();
-      lines.push(`  Session ID: ${sessionId ?? "none"}`);
+        // Bank and session info
+        lines.push("\n== Session ==");
+        lines.push(`  Bank ID: ${config.bankId}`);
+        const sessionId = ctx.sessionManager.getSessionId();
+        lines.push(`  Session ID: ${sessionId ?? "none"}`);
 
-      // Last recall status
-      lines.push("\n== Last Recall ==");
-      const recallDetails = getRecallDetails();
-      if (recallDetails) {
-        lines.push(`  Memories: ${recallDetails.count}`);
-        lines.push(`  Snippet: ${recallDetails.snippet.slice(0, 60)}${recallDetails.snippet.length > 60 ? "..." : ""}`);
-      } else {
-        lines.push("  No recall this session");
-      }
+        // Last recall status
+        lines.push("\n== Last Recall ==");
+        const recallDetails = getRecallDetails();
+        if (recallDetails) {
+          lines.push(`  Memories: ${recallDetails.count}`);
+          lines.push(
+            `  Snippet: ${recallDetails.snippet.slice(0, 60)}${recallDetails.snippet.length > 60 ? "..." : ""}`
+          );
+        } else {
+          lines.push("  No recall this session");
+        }
 
-      // Feature flags
-      lines.push("\n== Features ==");
-      lines.push(`  Auto-recall: ${config.autoRecallEnabled ? "enabled" : "disabled"}`);
-      lines.push(`  Auto-retain: ${config.autoRetainEnabled ? "enabled" : "disabled"}`);
+        // Feature flags
+        lines.push("\n== Features ==");
+        lines.push(`  Auto-recall: ${config.autoRecallEnabled ? "enabled" : "disabled"}`);
+        lines.push(`  Auto-retain: ${config.autoRetainEnabled ? "enabled" : "disabled"}`);
 
-      // Active recall settings
-      lines.push("\n== Auto Recall Settings ==");
-      lines.push(`  Persist: ${config.recallPersist}`);
-      lines.push(`  Display: ${config.recallDisplay}`);
-      lines.push(`  Types: ${config.recallTypes ? config.recallTypes.join(", ") : "all"}`);
-      lines.push(`  Budget: ${config.autoRecallBudget}`);
+        // Active recall settings
+        lines.push("\n== Auto Recall Settings ==");
+        lines.push(`  Persist: ${config.recallPersist}`);
+        lines.push(`  Display: ${config.recallDisplay}`);
+        lines.push(`  Types: ${config.recallTypes ? config.recallTypes.join(", ") : "all"}`);
+        lines.push(`  Budget: ${config.autoRecallBudget}`);
 
-      ctx.ui.notify(lines.join("\n"), "info");
+        ctx.ui.notify(lines.join("\n"), "info");
+      },
     },
-  });
 
-  // /hindsight-config - Show configuration
-  pi.registerCommand("hindsight-config", {
-    description: "Show configuration",
-    handler: async (_args: string, ctx: ExtensionContext) => {
-      const lines: string[] = [];
+    config: {
+      description: "Show configuration (file path, env vars, masked config)",
+      handler: async (_args: string, ctx: ExtensionContext) => {
+        const lines: string[] = [];
 
-      // Config file path
-      lines.push("== Config Source ==");
-      lines.push(`  File: ${configMeta.configPath ?? "none (using defaults)"}`);
+        // Config file path
+        lines.push("== Config Source ==");
+        lines.push(`  File: ${configMeta.configPath ?? "none (using defaults)"}`);
 
-      // Environment variables
-      lines.push("\n== Environment Variables ==");
-      if (configMeta.envVars.length > 0) {
-        lines.push(`  Set: ${configMeta.envVars.join(", ")}`);
-      } else {
-        lines.push("  None set");
-      }
-
-      // Full config (mask apiKey)
-      lines.push("\n== Configuration ==");
-      const maskedConfig = {
-        ...config,
-        apiKey: config.apiKey
-          ? (config.apiKey.length > 4 ? `****${config.apiKey.slice(-4)}` : "****")
-          : "(not set)",
-      };
-      lines.push(JSON.stringify(maskedConfig, null, 2).split("\n").map((l) => `  ${l}`).join("\n"));
-
-      // Warnings at the end
-      lines.push("\n== Warnings ==");
-      const allWarnings: string[] = [];
-      if (configMeta.warning) allWarnings.push(configMeta.warning);
-      allWarnings.push(...configMeta.validationWarnings);
-      if (allWarnings.length > 0) {
-        for (const w of allWarnings) {
-          lines.push(`  - ${w}`);
+        // Environment variables
+        lines.push("\n== Environment Variables ==");
+        if (configMeta.envVars.length > 0) {
+          lines.push(`  Set: ${configMeta.envVars.join(", ")}`);
+        } else {
+          lines.push("  None set");
         }
-      } else {
-        lines.push("  None");
+
+        // Full config (mask apiKey)
+        lines.push("\n== Configuration ==");
+        const maskedConfig = {
+          ...config,
+          apiKey: config.apiKey
+            ? config.apiKey.length > 4
+              ? `****${config.apiKey.slice(-4)}`
+              : "****"
+            : "(not set)",
+        };
+        lines.push(
+          JSON.stringify(maskedConfig, null, 2)
+            .split("\n")
+            .map((l) => `  ${l}`)
+            .join("\n")
+        );
+
+        // Warnings at the end
+        lines.push("\n== Warnings ==");
+        const allWarnings: string[] = [];
+        if (configMeta.warning) allWarnings.push(configMeta.warning);
+        allWarnings.push(...configMeta.validationWarnings);
+        if (allWarnings.length > 0) {
+          for (const w of allWarnings) {
+            lines.push(`  - ${w}`);
+          }
+        } else {
+          lines.push("  None");
+        }
+
+        ctx.ui.notify(lines.join("\n"), "info");
+      },
+    },
+  };
+
+  // Build subcommand list
+  const subcommandNames = Object.keys(subcommands);
+  const subcommandList = subcommandNames
+    .map((name) => `  ${name} - ${subcommands[name]?.description}`)
+    .join("\n");
+
+  pi.registerCommand("hindsight", {
+    description: `Hindsight memory commands. Subcommands:\n${subcommandList}`,
+    getArgumentCompletions: async (argumentPrefix: string) => {
+      // If a subcommand is already selected, delegate to its completions
+      const parts = argumentPrefix.split(/\s+/);
+      const subcommandName = parts[0] ?? "";
+
+      if (subcommandName && subcommands[subcommandName]) {
+        const subcommand = subcommands[subcommandName];
+        if (subcommand.getArgumentCompletions) {
+          const subArgPrefix = argumentPrefix.slice(subcommandName.length).trimStart();
+          return subcommand.getArgumentCompletions(subArgPrefix);
+        }
+        return null;
       }
 
-      ctx.ui.notify(lines.join("\n"), "info");
+      // Complete subcommand name
+      const matching = subcommandNames
+        .filter((name) => name.startsWith(subcommandName))
+        .map((name) => ({
+          label: name,
+          value: name,
+          description: subcommands[name]?.description,
+        }));
+
+      return matching.length > 0 ? matching : null;
+    },
+    handler: async (args: string, ctx: ExtensionContext) => {
+      const parts = args.trim().split(/\s+/);
+      const subcommandName = parts[0] ?? "";
+      const subArgs = parts.slice(1).join(" ");
+
+      if (!subcommandName) {
+        // No subcommand — show status
+        await subcommands.status?.handler("", ctx);
+        return;
+      }
+
+      const subcommand = subcommands[subcommandName];
+      if (!subcommand) {
+        ctx.ui.notify(
+          `Unknown subcommand: ${subcommandName}. Available: ${subcommandNames.join(", ")}`,
+          "error"
+        );
+        return;
+      }
+
+      await subcommand.handler(subArgs, ctx);
     },
   });
 }

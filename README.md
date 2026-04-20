@@ -92,7 +92,7 @@ When `recallPersist: true`:
 - `recallDisplay: true` can be used to show recall messages to the user
 
 When `recallPersist: false` (default):
-- Recall messages are ephemeral - sent to LLM but not displayed or persisted except for the most recent message with `/hindsight-popup`
+- Recall messages are ephemeral - sent to LLM but not displayed or persisted except for the most recent message with `/hindsight popup`
 - Uses `context` event for injection
 - No risk of old recall messages polluting context
 - `recallDisplay: true` has no effect (context event never shows in TUI)
@@ -255,7 +255,7 @@ The `recallPromptPreamble` config option (shown inside the fence above) defaults
 ## Failure Modes
 | Scenario | Behavior |
 |----------|----------|
-| Retain fails on shutdown | Queue remains on disk for manual flush via `/hindsight-flush` |
+| Retain fails on shutdown | Queue remains on disk for manual flush via `/hindsight flush` |
 | Pi crashes | Queue on disk, can be flushed manually on next session |
 | Hindsight unavailable | Queue grows, flushed when available |
 | Queue file corruption | Skip malformed lines on read (partial data loss) |
@@ -319,7 +319,7 @@ There are multiple other Hindsight integrations for Pi:
 | Bootstrap/import existing sessions | ✅ | ❌ | ✅ | ❌ |
 | Fork detection + parent tracking | ✅ | ❌ | ❌ | ❌ |
 | **Operational** |
-| TUI overlay for recall (`/hindsight-popup`) | ✅ | ❌ | ❌ | ❌ |
+| TUI overlay for recall (`/hindsight popup`) | ✅ | ❌ | ❌ | ❌ |
 | Health/doctor diagnostic command | ❌ | ❌ | ❌ | ✅ |
 
 > **Notes:**
@@ -363,19 +363,21 @@ When `toolsEnabled: true` (default), the following tools are available for the a
 | `hindsight_recall` | Search long-term memory using multi-strategy retrieval. Supports filtering by tags, memory types (`world`/`experience`/`observation`), and budget. |
 
 # Slash Commands
-| Command | Description |
-|---------|-------------|
-| `/hindsight-flush` | Manually flush queued messages to Hindsight |
-| `/hindsight-toggle-display` | Toggle recall message visibility in UI |
-| `/hindsight-popup` | Pop up last recalled messages in overlay |
-| `/hindsight-queue-status` | Show count of queued messages |
-| `/hindsight-status` | Show operational status (connection, session, recall info) |
-| `/hindsight-config` | Show configuration (file path, env vars, masked config) |
-| `/hindsight-parse-session` | Parse current session to file for manual review |
-| `/hindsight-upsert-parsed-session [id]` | Upsert a parsed session to Hindsight. If no ID is given, presents a selection UI to choose from parsed sessions. |
-| `/hindsight-upsert-all-parsed` | Upsert all parsed sessions to Hindsight |
+All commands are under `/hindsight <subcommand>`. With no subcommand, defaults to `status`.
 
-> **Note:** After `/resume`, a new user message is required before `/hindsight-popup` will show content, since recall only happens when there's a user message to query against.
+| Subcommand | Description |
+|------------|-------------|
+| `flush` | Flush queued messages to Hindsight |
+| `toggle-display` | Toggle recall message visibility in UI |
+| `popup` | Pop up last recalled messages in overlay |
+| `queue-status` | Show count of queued messages |
+| `status` | Show operational status (connection, session, recall info) |
+| `config` | Show configuration (file path, env vars, masked config) |
+| `parse-session` | Parse current session to file for manual review |
+| `upsert-parsed-session [id]` | Upsert a parsed session to Hindsight. If no ID is given, presents a selection UI to choose from parsed sessions. |
+| `upsert-all-parsed` | Upsert all parsed sessions to Hindsight |
+
+> **Note:** After `/resume`, a new user message is required before `/hindsight popup` will show content, since recall only happens when there's a user message to query against.
 
 # Recommended User Best Practices
 - Think about your [retain mission](https://hindsight.vectorize.io/developer/api/memory-banks#retain-configuration), [observations mission](https://hindsight.vectorize.io/developer/api/memory-banks#observations_mission), and [entity labels](https://hindsight.vectorize.io/developer/api/memory-banks#entity-labels) up front, as if you change these later and want them to affect old sessions, you will need to reingest everything.

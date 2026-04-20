@@ -2,11 +2,11 @@
  * Configuration loading for pi-hindsight extension.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
-import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import type { Budget } from "@vectorize-io/hindsight-client";
+import { type ParseError, parse as parseJsonc } from "jsonc-parser";
 
 export interface RetainContent {
   assistant: ("text" | "thinking" | "toolCall")[];
@@ -94,14 +94,36 @@ const DEFAULT_CONFIG: HindsightConfig = {
 
 // Config keys that can be set via env vars or config file
 const VALID_CONFIG_KEYS = new Set<keyof HindsightConfig>([
-  "enabled", "apiUrl", "apiKey", "bankId", "toolsEnabled", "autoRecallEnabled", "autoRecallBudget",
-  "autoRetainEnabled", "hindsightContextPrefix", "hindsightContextMaxLength", "maxRecallTokens",
-  "recallPromptPreamble", "recallShowDateTime", "recallDisplay", "recallPersist", "recallMaxQueryChars", "recallTypes",
-  "constantTags", "retainContent", "strip", "flushOnCompact", "entities",
-  "statusHealthy", "statusUnhealthy",
+  "enabled",
+  "apiUrl",
+  "apiKey",
+  "bankId",
+  "toolsEnabled",
+  "autoRecallEnabled",
+  "autoRecallBudget",
+  "autoRetainEnabled",
+  "hindsightContextPrefix",
+  "hindsightContextMaxLength",
+  "maxRecallTokens",
+  "recallPromptPreamble",
+  "recallShowDateTime",
+  "recallDisplay",
+  "recallPersist",
+  "recallMaxQueryChars",
+  "recallTypes",
+  "constantTags",
+  "retainContent",
+  "strip",
+  "flushOnCompact",
+  "entities",
+  "statusHealthy",
+  "statusUnhealthy",
 ]);
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): { value: boolean; warning?: string } {
+function parseBoolean(
+  value: string | undefined,
+  defaultValue: boolean
+): { value: boolean; warning?: string } {
   if (value === undefined) return { value: defaultValue };
   const lower = value.toLowerCase();
   if (lower === "true") return { value: true };
@@ -112,7 +134,11 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): { value
   };
 }
 
-function parseJsonArray(value: string | undefined, defaultValue: string[], fieldName: string): { value: string[]; warning?: string } {
+function parseJsonArray(
+  value: string | undefined,
+  defaultValue: string[],
+  fieldName: string
+): { value: string[]; warning?: string } {
   if (value === undefined) return { value: defaultValue };
   try {
     const parsed = JSON.parse(value);
@@ -129,7 +155,10 @@ function parseJsonArray(value: string | undefined, defaultValue: string[], field
   }
 }
 
-function parseBudget(value: string | undefined, defaultValue: Budget): { value: Budget; warning?: string } {
+function parseBudget(
+  value: string | undefined,
+  defaultValue: Budget
+): { value: Budget; warning?: string } {
   if (value === undefined) return { value: defaultValue };
   const valid: Budget[] = ["low", "mid", "high"];
   const lower = value.toLowerCase();
@@ -140,10 +169,14 @@ function parseBudget(value: string | undefined, defaultValue: Budget): { value: 
   };
 }
 
-function parseNumber(value: string | undefined, defaultValue: number | null, fieldName: string): { value: number | null; warning?: string } {
+function parseNumber(
+  value: string | undefined,
+  defaultValue: number | null,
+  fieldName: string
+): { value: number | null; warning?: string } {
   if (value === undefined) return { value: defaultValue };
   const num = parseInt(value, 10);
-  if (!isNaN(num)) return { value: num };
+  if (!Number.isNaN(num)) return { value: num };
   const defaultDesc = defaultValue === null ? "null" : defaultValue;
   return {
     value: defaultValue,
@@ -151,7 +184,10 @@ function parseNumber(value: string | undefined, defaultValue: number | null, fie
   };
 }
 
-function parseMemoryTypes(value: string | undefined, defaultValue: MemoryType[] | null): { value: MemoryType[] | null; warning?: string } {
+function parseMemoryTypes(
+  value: string | undefined,
+  defaultValue: MemoryType[] | null
+): { value: MemoryType[] | null; warning?: string } {
   if (value === undefined) return { value: defaultValue };
   try {
     const parsed = JSON.parse(value);
@@ -187,7 +223,7 @@ function parseMemoryTypes(value: string | undefined, defaultValue: MemoryType[] 
 function setConfigValue(
   config: HindsightConfig,
   key: keyof HindsightConfig,
-  value: unknown,
+  value: unknown
 ): string | undefined {
   switch (key) {
     case "enabled":
@@ -222,7 +258,7 @@ function setConfigValue(
         return;
       }
       const result = parseNumber(String(value), DEFAULT_CONFIG[key] as number, key);
-      config[key] = result.value ?? DEFAULT_CONFIG[key] as number;
+      config[key] = result.value ?? (DEFAULT_CONFIG[key] as number);
       return result.warning;
     }
     case "maxRecallTokens": {
@@ -295,17 +331,22 @@ function setConfigValue(
       if (typeof value === "string") {
         try {
           const parsed = JSON.parse(value);
-          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          if (parsed === null) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
+            return `${key} must be a JSON object, got null. Using default.`;
+          }
+          if (typeof parsed === "object" && !Array.isArray(parsed)) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (config as any)[key] = parsed;
             return;
           }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (config as any)[key] = DEFAULT_CONFIG[key];
-          return `${key} must be a JSON object, got ${typeof parsed}. Using default.`;
+          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
+          return `${key} must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
         } catch {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (config as any)[key] = DEFAULT_CONFIG[key];
+          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
           return `${key} contains invalid JSON. Using default.`;
         }
       }
@@ -314,7 +355,7 @@ function setConfigValue(
         return;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (config as any)[key] = DEFAULT_CONFIG[key];
+      (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
       return `${key} must be an object, got ${Array.isArray(value) ? "array" : typeof value}. Using default.`;
     case "apiUrl":
     case "apiKey":
@@ -333,7 +374,12 @@ function setConfigValue(
   }
 }
 
-export function loadConfig(extensionsDir?: string): { config: HindsightConfig; configPath?: string; warning?: string; envVars: string[] } {
+export function loadConfig(extensionsDir?: string): {
+  config: HindsightConfig;
+  configPath?: string;
+  warning?: string;
+  envVars: string[];
+} {
   // Deep copy to avoid mutating DEFAULT_CONFIG
   // Note: retainContent and strip are replaced entirely (not merged) in setConfigValue
   const config: HindsightConfig = {
@@ -348,7 +394,7 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; c
   const jsoncPath = join(dir, "config.jsonc");
   const jsonPath = join(dir, "config.json");
 
-  const configPath = existsSync(jsoncPath) ? jsoncPath : (existsSync(jsonPath) ? jsonPath : null);
+  const configPath = existsSync(jsoncPath) ? jsoncPath : existsSync(jsonPath) ? jsonPath : null;
 
   if (configPath) {
     try {
@@ -357,7 +403,9 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; c
       const fileConfig = parseJsonc(fileContent, errors, { allowTrailingComma: true });
 
       if (errors.length > 0) {
-        warnings.push(`Failed to parse config file ${configPath}: ${errors.length} parse error(s). Using defaults.`);
+        warnings.push(
+          `Failed to parse config file ${configPath}: ${errors.length} parse error(s). Using defaults.`
+        );
       } else {
         for (const [key, value] of Object.entries(fileConfig as object)) {
           if (!VALID_CONFIG_KEYS.has(key as keyof HindsightConfig)) {
@@ -412,10 +460,19 @@ export function loadConfig(extensionsDir?: string): { config: HindsightConfig; c
     }
   }
 
-  return { config, configPath: configPath ?? undefined, warning: warnings.length > 0 ? warnings.join("; ") : undefined, envVars };
+  return {
+    config,
+    configPath: configPath ?? undefined,
+    warning: warnings.length > 0 ? warnings.join("; ") : undefined,
+    envVars,
+  };
 }
 
-export function validateConfig(config: HindsightConfig): { valid: boolean; errors: string[]; warnings: string[] } {
+export function validateConfig(config: HindsightConfig): {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+} {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -472,7 +529,9 @@ export function validateConfig(config: HindsightConfig): { valid: boolean; error
 
   // Warn if recallDisplay is true but recallPersist is false
   if (config.recallDisplay && !config.recallPersist) {
-    warnings.push("recallDisplay: true has no effect when recallPersist: false (context event never shows in TUI)");
+    warnings.push(
+      "recallDisplay: true has no effect when recallPersist: false (context event never shows in TUI)"
+    );
   }
 
   return { valid: errors.length === 0, errors, warnings };
