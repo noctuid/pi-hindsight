@@ -336,13 +336,7 @@ export function buildDocumentTags(
   if (header.parentSession) {
     // Use provided parent ID if available, otherwise extract from parent session file
     const parentId = options?.parentSessionId ?? extractParentSessionId(header.parentSession);
-    if (parentId) {
-      tags.push(`parent:${parentId}`);
-    } else {
-      // Last resort: extract UUID from path
-      const match = header.parentSession.match(/([a-f0-9-]{36})\.jsonl$/);
-      tags.push(`parent:${match ? match[1] : header.parentSession}`);
-    }
+    tags.push(`parent:${parentId ?? header.id}`);
   } else {
     tags.push(`parent:${header.id}`);
   }

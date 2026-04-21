@@ -21,27 +21,41 @@ export function truncate(str: string, maxChars: number): string {
 }
 
 /**
+ * Try to extract a session ID from a parent session file path.
+ * Returns the UUID portion if the path matches the expected pattern,
+ * or undefined if no ID can be extracted.
+ */
+function extractParentSessionIdFromPath(parentSessionPath: string | undefined): string | undefined {
+  if (!parentSessionPath) return undefined;
+  const match = parentSessionPath.match(/([a-f0-9-]{36})\.jsonl$/);
+  return match ? match[1] : undefined;
+}
+
+/**
  * Extract session ID from a parent session file path.
  * The parent session header contains the actual session ID.
- * Returns undefined if the file can't be read or parsed.
+ * Falls back to extracting the UUID from the file path if the file
+ * can't be read or doesn't contain a valid session header.
+ * Returns undefined if no ID can be extracted.
  */
 export function extractParentSessionId(parentSessionPath: string | undefined): string | undefined {
   if (!parentSessionPath || !existsSync(parentSessionPath)) {
-    return undefined;
+    // File doesn't exist — try extracting ID from path as fallback
+    return extractParentSessionIdFromPath(parentSessionPath);
   }
 
   try {
     const content = readFileSync(parentSessionPath, "utf-8");
     const firstLine = content.split("\n")[0];
-    if (!firstLine) return undefined;
+    if (!firstLine) return extractParentSessionIdFromPath(parentSessionPath);
 
     const header = JSON.parse(firstLine) as { type?: string; id?: string };
     if (header.type === "session" && header.id) {
       return header.id;
     }
-    return undefined;
+    return extractParentSessionIdFromPath(parentSessionPath);
   } catch {
-    return undefined;
+    return extractParentSessionIdFromPath(parentSessionPath);
   }
 }
 
