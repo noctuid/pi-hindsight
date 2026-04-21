@@ -402,19 +402,19 @@ Configuration options can also be set via environment variables (override config
 </details>
 
 # Additional Details
-## Memory Context Fencing
-Recalled memories are wrapped in a `<memory-context>` fence to help the LLM distinguish between new user input and recalled background information. This format is inspired by [Hermes](https://github.com/nickchomey/hermes).
+## Memory Fencing
+Recalled memories are wrapped in a `<hindsight_memories>` fence to help the LLM distinguish between new user input and recalled background information. This format is inspired by [Hermes](https://github.com/nousresearch/hermes-agent).
 
 Example of injected content:
 
 ```
-<memory-context>
-[System note: The following is recalled memory context, NOT new user input. Prioritize recent when conflicting. Only use memories that are directly useful to continue this conversation; ignore the rest]
+<hindsight_memories>
+[System note: The following are recalled memories from hindsight, NOT new user input. Prioritize recent when conflicting. Only use memories that are directly useful to continue this conversation; ignore the rest]
 
 Current date and time: Monday, 2024-01-15 14:30 EST
 
 {recalled memory content}
-</memory-context>
+</hindsight_memories>
 ```
 
 The fencing helps prevent the LLM from confusing recalled context with the current conversation, reducing hallucinations and improving response relevance.
