@@ -335,17 +335,17 @@ export interface RecallMessageDetails {
 }
 
 /**
- * Format recall results into a hidden message with memory context fencing.
+ * Format recall results into a hidden message with hindsight_memories fencing.
  * Precondition: results must be non-empty (caller checks results.length > 0).
  * Uses display: false so message is sent to LLM but not shown to user or persisted.
  *
  * Memory context fencing format inspired by Hermes + Hindsight:
- * <memory-context>
+ * <hindsight_memories>
  * {preamble}
  *
  * {date/time if enabled}
  * {memories}
- * </memory-context>
+ * </hindsight_memories>
  *
  * The preamble IS the configurable system note that appears at the top.
  * By default, it contains the combined Hermes/Hindsight wording.
@@ -395,10 +395,10 @@ export function formatRecallMessage(
 
   innerParts.push(memories);
 
-  // Wrap in memory-context tags
-  const content = `<memory-context>
+  // Wrap in hindsight_memories tags
+  const content = `<hindsight_memories>
 ${innerParts.join("\n\n")}
-</memory-context>`;
+</hindsight_memories>`;
 
   // Build details for custom renderer
   const count = results.length;
