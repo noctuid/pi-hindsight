@@ -394,7 +394,7 @@ function setConfigValue(
     case "strip":
       // Replace entirely (not merge) - user must provide complete object
       if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
         (config as any)[key] = value;
         return;
       }
@@ -403,20 +403,20 @@ function setConfigValue(
         try {
           const parsed = JSON.parse(value);
           if (parsed === null) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
             (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
             return `${key} must be a JSON object, got null. Using default.`;
           }
           if (typeof parsed === "object" && !Array.isArray(parsed)) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
             (config as any)[key] = parsed;
             return;
           }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
           (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
           return `${key} must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
         } catch {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
           (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
           return `${key} contains invalid JSON. Using default.`;
         }
@@ -425,12 +425,12 @@ function setConfigValue(
       if (value === null) {
         return;
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
       (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
       return `${key} must be an object, got ${Array.isArray(value) ? "array" : typeof value}. Using default.`;
     case "toolFilter":
       if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
         (config as any)[key] = value;
         return;
       }
@@ -438,15 +438,15 @@ function setConfigValue(
         try {
           const parsed = JSON.parse(value);
           if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
             (config as any)[key] = parsed;
             return;
           }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
           (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
           return `toolFilter must be a JSON object, got ${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
         } catch {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
           (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
           return "toolFilter contains invalid JSON. Using default.";
         }

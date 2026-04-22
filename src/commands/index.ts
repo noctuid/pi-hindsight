@@ -73,7 +73,7 @@ export function registerCommands(
   // Build subcommand list
   const subcommandNames = Object.keys(subcommands);
   const subcommandList = subcommandNames
-    .map((name) => `  ${name} - ${subcommands[name]!.description}`)
+    .map((name) => `  ${name} - ${subcommands[name]?.description ?? ""}`)
     .join("\n");
 
   pi.registerCommand("hindsight", {
@@ -98,7 +98,7 @@ export function registerCommands(
         .map((name) => ({
           label: name,
           value: name,
-          description: subcommands[name]!.description,
+          description: subcommands[name]?.description ?? "",
         }));
 
       return matching.length > 0 ? matching : null;
@@ -110,7 +110,7 @@ export function registerCommands(
 
       if (!subcommandName) {
         // No subcommand — show status
-        await subcommands.status!.handler("", ctx);
+        await subcommands.status?.handler("", ctx);
         return;
       }
 
