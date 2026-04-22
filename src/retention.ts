@@ -4,7 +4,7 @@
 
 import type { MemoryItemInput } from "@vectorize-io/hindsight-client";
 import type { HindsightClientWrapper } from "./client";
-import type { HindsightConfig, ObservationScopes } from "./config";
+import type { HindsightConfig } from "./config";
 import { expandScopePlaceholders } from "./config";
 import { getHindsightMeta } from "./meta";
 import type { ToolQueueEntry } from "./queue";

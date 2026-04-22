@@ -27,8 +27,9 @@ export function getHindsightMeta(
   entries: Array<{ type: string; customType?: string; data?: unknown }>
 ): HindsightMeta | null {
   for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i]!;
+    const entry = entries[i];
     if (
+      entry &&
       entry.type === "custom" &&
       entry.customType === "hindsight-meta" &&
       entry.data !== undefined

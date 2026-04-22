@@ -196,7 +196,10 @@ export default function (pi: ExtensionAPI) {
           // Call shared recall helper (always display: false when recallPersist is false)
           const result = await doAutoRecall(userMessage, ctx.signal, false);
           if (result) {
-            return { messages: [...filteredMessages, result.recallMessage] } as any;
+            return { messages: [...filteredMessages, result.recallMessage] } as Record<
+              string,
+              unknown
+            >;
           }
         }
       }
@@ -204,7 +207,7 @@ export default function (pi: ExtensionAPI) {
 
     // If we filtered out recall messages but didn't inject new ones, return filtered array
     if (hadRecallMessages) {
-      return { messages: filteredMessages } as any;
+      return { messages: filteredMessages } as Record<string, unknown>;
     }
   });
 

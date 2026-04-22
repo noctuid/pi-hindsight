@@ -113,7 +113,7 @@ export class HindsightClientWrapper {
       }
       return { success: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
-      clearTimeout(timeoutId!);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
       if (abortHandler) {
         signal?.removeEventListener("abort", abortHandler);
       }
