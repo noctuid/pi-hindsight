@@ -360,8 +360,8 @@ describe("renderRecallMessage", () => {
 
     const rendered = renderRecallMessage(details, true);
 
-    // Should have a separator line made of dashes
-    expect(rendered).toContain("\u2500".repeat(40));
+    // Should have a separator line made of box-drawing characters
+    expect(rendered).toContain("\u2500".repeat(80));
   });
 
   it("works with formatRecallMessage output", () => {
