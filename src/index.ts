@@ -5,8 +5,8 @@
  * turn-based queue with Hindsight's append mode.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Box, Text } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import { Box, type Component, Text } from "@mariozechner/pi-tui";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { HindsightClientWrapper } from "./client";
 import { registerCommands } from "./commands";
@@ -115,26 +115,17 @@ export default function (pi: ExtensionAPI) {
       const details = message.details;
       if (!details) return undefined;
 
-      // Build the display text
-      let text: string;
       if (expanded) {
-        // When expanded: show the full memory content
-        text =
-          theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
-          theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
-          "\n" +
-          theme.fg("dim", "\u2500".repeat(40)) +
-          "\n" +
-          details.memories;
-      } else {
-        // When collapsed: show summary with snippet
-        text =
-          theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
-          theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
-          " " +
-          theme.fg("dim", `[${details.snippet}]`);
+        // Use a custom component for full-width separators
+        return new RecallExpandedComponent(details, theme);
       }
 
+      // When collapsed: show summary with snippet
+      const text =
+        theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
+        theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
+        " " +
+        theme.fg("dim", `[${details.snippet}]`);
       const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
       box.addChild(new Text(text, 0, 0));
       return box;
@@ -339,6 +330,38 @@ export default function (pi: ExtensionAPI) {
 }
 
 /**
+ * Custom component for rendering expanded recall messages with full-width separators.
+ * Separators stretch to fill the terminal width, like tool block borders.
+ */
+class RecallExpandedComponent implements Component {
+  constructor(
+    private details: RecallMessageDetails,
+    private theme: Theme
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const th = this.theme;
+    // Build content with full-width separators inside a Box with customMessageBg
+    const box = new Box(1, 1, (t) => th.bg("customMessageBg", t));
+
+    const contentWidth = Math.max(1, width - 2); // 2 = Box paddingX * 2
+    const title =
+      th.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
+      th.fg("muted", `${this.details.count} ${this.details.count === 1 ? "memory" : "memories"}`);
+    const separator = th.fg("dim", "\u2500".repeat(contentWidth));
+
+    box.addChild(new Text(title, 0, 0));
+    box.addChild(new Text(separator, 0, 0));
+    box.addChild(new Text(this.details.memories, 0, 0));
+    box.addChild(new Text(separator, 0, 0));
+
+    return box.render(width);
+  }
+}
+
+/**
  * Details included in hindsight-recall messages for the custom renderer.
  * Exported for testing.
  */
@@ -439,10 +462,15 @@ ${innerParts.join("\n\n")}
  * Returns plain text suitable for testing (no ANSI codes).
  * Exported for testing.
  */
-export function renderRecallMessage(details: RecallMessageDetails, expanded: boolean): string {
+export function renderRecallMessage(
+  details: RecallMessageDetails,
+  expanded: boolean,
+  width?: number
+): string {
   if (expanded) {
     // When expanded: show the full memory content
-    return `Hindsight recalled ${details.count} ${details.count === 1 ? "memory" : "memories"}\n${"\u2500".repeat(40)}\n${details.memories}`;
+    const sepWidth = width ?? 80;
+    return `Hindsight recalled ${details.count} ${details.count === 1 ? "memory" : "memories"}\n${"\u2500".repeat(sepWidth)}\n${details.memories}\n${"\u2500".repeat(sepWidth)}`;
   } else {
     // When collapsed: show summary with snippet
     return `Hindsight recalled ${details.count} ${details.count === 1 ? "memory" : "memories"} [${details.snippet}]`;
