@@ -9,6 +9,7 @@ Status: This is currently alpha level software. I recommend waiting until I publ
 - [Local Quickstart](#local-quickstart)
 - [Configuration](#configuration)
   - [Example Configuration](#example-configuration)
+  - [General Settings](#general-settings)
   - [Auto-Recall Settings](#auto-recall-settings)
     - [recallPersist Tradeoffs](#recallpersist-tradeoffs)
   - [Status Bar Indicator](#status-bar-indicator)
@@ -20,6 +21,7 @@ Status: This is currently alpha level software. I recommend waiting until I publ
     - [entities](#entities)
     - [Examples](#examples)
   - [Environment Variables](#environment-variables)
+- [Deviations from Official Integrations](#deviations-from-official-integrations)
 - [Additional Details](#additional-details)
 - [Comparison with Other Implementations](#comparison-with-other-implementations)
   - [Feature Comparison](#feature-comparison)
@@ -60,6 +62,7 @@ Follow [hindsight best practices](https://hindsight.vectorize.io/best-practices)
 
 Additionally:
 - Recalls memories for the current user prompt, unlike [hermes which is currently one turn behind](https://github.com/NousResearch/hermes-agent/issues/5820)
+- Supports ingesting past sessions — any session that has ever existed can be synced to Hindsight, not just sessions that had the extension loaded. Note that for old resumed sessions (sessions created before the plugin was installed), only new messages will be auto-queued on `message_end`. To retain the full session history, use `/hindsight parse-and-upsert-session` to ingest the entire conversation.
 - Avoids breaking prompt caching - recall messages are appended at the end of the context for a single turn only; the canonical conversation history (which determines cache validity) grows normally with each turn, so caching should work as expected
 - Queues content to retain to disk to avoid loss if hindsight is down; also allows deferring processing or reprocessing to potentially lower costs
 - Properly handles forking when ingesting full sessions: forks will not duplicate parent content and will only contain new content
@@ -131,9 +134,28 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
   "bankId": "default",
   // store recalls in session file and show collapsable blocks; see caveat below!
   "recallPersist": true,
-  "recallDisplay": true
+  "recallDisplay": true,
+  // if you want to reduce injected memory tokens (hindsight default: 4096, high: 8192)
+  // see https://hindsight.vectorize.io/developer/retrieval#max-tokens-context-window-size
+  "maxRecallTokens": 2048
 }
 ```
+
+## General Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `toolsEnabled` | `true` | Register hindsight_retain/recall/reflect tools for the agent |
+| `autoRecallEnabled` | `true` | Automatically recall relevant memories before each LLM call |
+| `autoRetainEnabled` | `true` | Automatically queue messages for retention on `message_end` |
+| `autoRecallBudget` | `"mid"` | Recall retrieval budget. One of `"low"`, `"mid"`, `"high"`. Controls how many results Hindsight returns. |
+| `hindsightContextPrefix` | `"pi: "` | Prefix prepended to the session name or first message when building the `context` field for retained documents |
+| `hindsightContextMaxLength` | `100` | Maximum character length for the `context` field (after prefix). The context is truncated to this length. |
+| `maxRecallTokens` | `null` | Maximum tokens for recalled content. When `null`, uses Hindsight's default (4096). See [max tokens context window size](https://hindsight.vectorize.io/developer/retrieval#max-tokens-context-window-size) for details. |
+| `recallMaxQueryChars` | `800` | Maximum characters from the user's message to use as the recall query |
+| `recallPromptPreamble` | *(see defaults)* | The system note text inside `<hindsight_memories>` fences that instructs the LLM how to use recalled memories |
+| `constantTags` | `["harness:pi"]` | Tags included on every retained document (useful for filtering in Hindsight) |
+| `flushOnCompact` | `false` | Flush queued messages to Hindsight after a compaction event |
 
 ## Auto-Recall Settings
 
@@ -401,6 +423,14 @@ Configuration options can also be set via environment variables (override config
 | `PI_HINDSIGHT_STATUS_UNHEALTHY` | `statusUnhealthy` | string | `"🤯"` |
 </details>
 
+# Deviations from Official Integrations
+
+The official Hindsight integrations make some different default choices:
+
+- **Recall types**: The OpenClaw integration defaults to recalling `world` and `experience` types (excluding verbose observation entries by default, per the OpenClaw integration README). This plugin defaults to `observation` only, since observations are deduplicated consolidated information. You can try either approach — set `recallTypes` to `["world", "experience"]`, `["observation"]`, or `null` (all types) depending on what works best for your use case.
+
+- **hindsight-embed setup**: This plugin does not automatically set up or manage [hindsight-embed](https://github.com/vectorize-io/hindsight-embed). You need to create profiles, banks, and configure hindsight-embed yourself before using this plugin. See [Local Quickstart](#local-quickstart) for setup instructions.
+
 # Additional Details
 ## Memory Fencing
 Recalled memories are wrapped in a `<hindsight_memories>` fence to help the LLM distinguish between new user input and recalled background information. This format is inspired by [Hermes](https://github.com/nousresearch/hermes-agent).
@@ -592,6 +622,9 @@ For the retain mission, you may want to experiment with including something like
 ## rewind/rollback
 Rollback with checkpoint extensions is untested. It may require code changes to include rollback information/messages. I think it makes sense to include the rollback information in memories (what happened? why was it necessary?), so I won't support actually removing messages from before the rollback in the final ingested document.
 
+## packages that also use pi.on("context")
+Unknown. I'm not sure how this will interact with something like pi-headrom. It needs investigation.
+
 # FAQ
 ## Why did you make this when there is already a pi-hindsight?
 I made this before there were any other pi plugins. When I found the other pi-hindsight, there were features missing that I want and already had:
@@ -619,4 +652,4 @@ The commands to show the status, config, popup, and recall display in the UI (wh
 
 The automated tests have not been reviewed properly. I'm sure there are also bugs that I have not caught. Any feedback is welcome here, but one major advantage of this plugin is that **you can easily verify the queue and parsed session files are as expected yourself** before retention, and then you can verify that the documents and tags are as expected after retention. You can also verify for yourself that you are still getting cached reads.
 
-Long term, I plan to focus on ensuring this extension is robust and bug-free. The primary reason I am making this extension myself is to make sure every aspect works correctly after finding issues with a lot of integrations for other memory systems or harnesses. Correctness matters too much for memory to not review the code (at least in the current month).
+Long term, I plan to focus on ensuring this extension is robust and bug-free (*more manual re-review is currently needed*). The primary reason I am making this extension myself is to make sure every aspect works correctly after finding issues with a lot of integrations for other memory systems or harnesses. Correctness matters too much for memory to not review the code (at least in the current month).
