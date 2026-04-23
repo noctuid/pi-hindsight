@@ -1228,6 +1228,42 @@ describe("loadConfig", () => {
     expect(errors).toContain("toolFilter.toolCall must have either 'include' or 'exclude'");
   });
 
+  it("warns on invalid toolFilter type in config file", () => {
+    writeFileSync(
+      join(TEST_DIR, "config.json"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        toolFilter: 42,
+      })
+    );
+
+    const { config, warning } = loadConfig(TEST_DIR);
+    // Falls back to default
+    expect((config.toolFilter.toolCall as { exclude: string[] }).exclude).toContain("grep");
+    expect(warning).toContain("toolFilter must be an object, got number");
+  });
+
+  it("does not warn on null toolFilter (might be intentional)", () => {
+    writeFileSync(
+      join(TEST_DIR, "config.json"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        toolFilter: null,
+      })
+    );
+
+    const { config, warning } = loadConfig(TEST_DIR);
+    // null is ignored, keeps default
+    expect((config.toolFilter.toolCall as { exclude: string[] }).exclude).toContain("grep");
+    // null should not produce a warning (consistent with retainContent/strip)
+    // If warning is defined, it must not mention toolFilter
+    if (warning) {
+      expect(warning).not.toContain("toolFilter");
+    }
+  });
+
   it("empty toolFilter means no filtering", () => {
     loadConfig(TEST_DIR);
     // Default has values; test empty override

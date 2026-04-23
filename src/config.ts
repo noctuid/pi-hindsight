@@ -231,6 +231,73 @@ function parseNumber(
   };
 }
 
+/**
+ * Set a config key value, handling the union type assignment.
+ * Avoids per-call biome-ignore comments for cross-type assignment.
+ */
+function setConfigKey(config: HindsightConfig, key: keyof HindsightConfig, value: unknown): void {
+  // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
+  (config as any)[key] = value;
+}
+
+/**
+ * Set an object-type config field from a raw value (config file or env var string).
+ * Handles: direct object assignment, JSON string parsing, and fallback to default.
+ * Used by retainContent, strip, and toolFilter which all accept JSON objects.
+ *
+ * @param config - The config object to mutate
+ * @param key - The config key to set
+ * @param value - The raw value (object from config file, or JSON string from env var)
+ * @returns A warning string if the value was invalid and fallback was used
+ */
+function setObjectField(
+  config: HindsightConfig,
+  key: keyof HindsightConfig,
+  value: unknown
+): string | undefined {
+  // Direct object from config file
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    setConfigKey(config, key, value);
+    return;
+  }
+  // String value from env var - parse as JSON
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed === null) {
+        setConfigKey(config, key, structuredClone(DEFAULT_CONFIG[key]));
+        return `${key} must be a JSON object, got null. Using default.`;
+      }
+      if (typeof parsed === "object" && !Array.isArray(parsed)) {
+        setConfigKey(config, key, parsed);
+        return;
+      }
+      setConfigKey(config, key, structuredClone(DEFAULT_CONFIG[key]));
+      return `${key} must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
+    } catch {
+      setConfigKey(config, key, structuredClone(DEFAULT_CONFIG[key]));
+      return `${key} contains invalid JSON. Using default.`;
+    }
+  }
+  // null might be intentional (e.g., unsetting config), don't warn
+  if (value === null) {
+    return;
+  }
+  setConfigKey(config, key, structuredClone(DEFAULT_CONFIG[key]));
+  return `${key} must be an object, got ${Array.isArray(value) ? "array" : typeof value}. Using default.`;
+}
+
+/**
+ * Validate an entities array value.
+ * Each entry must be an object with a string 'text' property.
+ */
+function validateEntities(items: unknown[]): boolean {
+  return items.every(
+    (e) =>
+      typeof e === "object" && e !== null && typeof (e as Record<string, unknown>).text === "string"
+  );
+}
+
 function parseMemoryTypes(
   value: string | undefined,
   defaultValue: MemoryType[] | null
@@ -353,13 +420,7 @@ function setConfigValue(
     }
     case "entities": {
       if (Array.isArray(value)) {
-        const valid = value.every(
-          (e) =>
-            typeof e === "object" &&
-            e !== null &&
-            typeof (e as Record<string, unknown>).text === "string"
-        );
-        if (valid) {
+        if (validateEntities(value)) {
           config[key] = value;
           return;
         }
@@ -370,13 +431,7 @@ function setConfigValue(
       try {
         const parsed = JSON.parse(String(value));
         if (Array.isArray(parsed)) {
-          const valid = parsed.every(
-            (e: unknown) =>
-              typeof e === "object" &&
-              e !== null &&
-              typeof (e as Record<string, unknown>).text === "string"
-          );
-          if (valid) {
+          if (validateEntities(parsed)) {
             config[key] = parsed;
             return;
           }
@@ -392,67 +447,9 @@ function setConfigValue(
     }
     case "retainContent":
     case "strip":
-      // Replace entirely (not merge) - user must provide complete object
-      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-        (config as any)[key] = value;
-        return;
-      }
-      // String value from env var - parse as JSON
-      if (typeof value === "string") {
-        try {
-          const parsed = JSON.parse(value);
-          if (parsed === null) {
-            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-            (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-            return `${key} must be a JSON object, got null. Using default.`;
-          }
-          if (typeof parsed === "object" && !Array.isArray(parsed)) {
-            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-            (config as any)[key] = parsed;
-            return;
-          }
-          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-          return `${key} must be a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
-        } catch {
-          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-          return `${key} contains invalid JSON. Using default.`;
-        }
-      }
-      // null might be intentional (e.g., unsetting config), don't warn
-      if (value === null) {
-        return;
-      }
-      // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-      (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-      return `${key} must be an object, got ${Array.isArray(value) ? "array" : typeof value}. Using default.`;
     case "toolFilter":
-      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-        (config as any)[key] = value;
-        return;
-      }
-      if (typeof value === "string") {
-        try {
-          const parsed = JSON.parse(value);
-          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-            // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-            (config as any)[key] = parsed;
-            return;
-          }
-          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-          return `toolFilter must be a JSON object, got ${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed}. Using default.`;
-        } catch {
-          // biome-ignore lint/suspicious/noExplicitAny: config key assignment requires any due to union type
-          (config as any)[key] = structuredClone(DEFAULT_CONFIG[key]);
-          return "toolFilter contains invalid JSON. Using default.";
-        }
-      }
-      // null or undefined - keep default (consistent with retainContent/strip)
-      return;
+      // Replace entirely (not merge) - user must provide complete object
+      return setObjectField(config, key, value);
     case "observationScopes": {
       if (value === null || value === undefined || value === "") {
         config[key] = null;
