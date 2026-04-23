@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, mock } from "bun:test";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 // Import the real config module BEFORE mocking to preserve exports
 import * as realConfig from "../src/config";
@@ -81,6 +82,12 @@ afterEach(() => {
   deleteAutoQueue(BOOTSTRAP_SESSION);
   deleteToolQueue(BOOTSTRAP_SESSION);
 
+  // Reset module-level mutable state (recallDisplayOverride, lastRecallMessage)
+  // to prevent test order dependencies — toggle-display tests mutate this state
+  // and the module is cached by Bun's module system.
+  const { _resetState } = require("../src/index") as typeof import("../src/index");
+  _resetState();
+
   // Reset active state for next test
   activeConfig = { ...testConfig };
   activeWarning = undefined;
@@ -143,6 +150,69 @@ describe("real entrypoint bootstrap", () => {
     extension.default(pi);
 
     expect(pi.renderers.has("hindsight-recall")).toBe(true);
+  });
+
+  it("renderer returns dynamic components that respect display toggle", async () => {
+    activeConfig = { ...testConfig, recallPersist: true, recallDisplay: false };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const renderer = pi.renderers.get("hindsight-recall") as (
+      message: Record<string, unknown>,
+      options: { expanded: boolean },
+      theme: Record<string, unknown>
+    ) => { render: (width: number) => string[] } | undefined;
+    expect(renderer).toBeDefined();
+
+    const details = {
+      count: 2,
+      snippet: "Memory 1 · Memory 2",
+      memories: "Memory 1\n\n---\n\nMemory 2",
+    };
+    const message = {
+      role: "custom",
+      customType: "hindsight-recall",
+      content: "test",
+      display: true,
+      details,
+    };
+    const mockTheme = {
+      fg: (_name: string, text: string) => text,
+      bg: (_name: string, text: string) => text,
+    };
+
+    // Create collapsed component — default state: recallDisplay false → hidden
+    const collapsed = renderer(message, { expanded: false }, mockTheme)!;
+    expect(collapsed.render(80)).toEqual([]);
+
+    // Toggle display ON via the command handler
+    const commandHandler = pi.commands.get("hindsight") as
+      | {
+          handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+        }
+      | undefined;
+    expect(commandHandler).toBeDefined();
+    await commandHandler!.handler("toggle-display", createMockContext());
+
+    // Same component instance should now render content (dynamic toggle)
+    const collapsedLines = collapsed.render(80);
+    expect(collapsedLines.length).toBeGreaterThan(0);
+    expect(collapsedLines.join("\n")).toContain("Hindsight recalled");
+
+    // Toggle display OFF — component should hide again
+    await commandHandler!.handler("toggle-display", createMockContext());
+    expect(collapsed.render(80)).toEqual([]);
+
+    // Expanded component also respects the toggle
+    const expanded = renderer(message, { expanded: true }, mockTheme)!;
+    expect(expanded.render(80)).toEqual([]); // display is off
+
+    await commandHandler!.handler("toggle-display", createMockContext()); // toggle on
+    const expandedLines = expanded.render(80);
+    expect(expandedLines.length).toBeGreaterThan(0);
+    expect(expandedLines.join("\n")).toContain("Hindsight recalled");
   });
 
   it("session_start handler sets healthy status", async () => {
@@ -480,6 +550,48 @@ describe("real entrypoint bootstrap", () => {
     expect(result?.message).toBeDefined();
     const msg = result?.message as Record<string, unknown>;
     expect(msg.customType).toBe("hindsight-recall");
+    // When recallPersist: true, display is always true so the message is added
+    // to the TUI chat container (renderer dynamically controls visibility)
+    expect(msg.display).toBe(true);
+  });
+
+  it("before_agent_start uses display: true even when recallDisplay: false and recallPersist: true", async () => {
+    activeConfig = { ...testConfig, recallPersist: true, recallDisplay: false };
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() =>
+        Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "Memory" }] },
+        })
+      ),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const handler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => [
+          {
+            type: "message",
+            message: { role: "user", content: [{ type: "text", text: "Hello" }] },
+          },
+        ]),
+      },
+    });
+
+    const result = (await handler({ type: "before_agent_start" }, ctx)) as
+      | Record<string, unknown>
+      | undefined;
+    const msg = result?.message as Record<string, unknown>;
+    expect(msg.display).toBe(true);
   });
 
   it("before_agent_start caches recall but does not persist when recallPersist is false", async () => {

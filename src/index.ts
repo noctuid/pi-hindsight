@@ -30,6 +30,14 @@ let recallDisplayOverride: boolean | null = null;
 // and for show-recall/popup command (lastRecallMessage?.details is the cached details)
 let lastRecallMessage: ReturnType<typeof formatRecallMessage> | null = null;
 
+/**
+ * Reset module-level mutable state. Exported for testing only.
+ */
+export function _resetState(): void {
+  recallDisplayOverride = null;
+  lastRecallMessage = null;
+}
+
 export default function (pi: ExtensionAPI) {
   // Load and validate config
   const { config, configPath, warning, envVars } = loadConfig();
@@ -108,7 +116,14 @@ export default function (pi: ExtensionAPI) {
     }
   );
 
-  // Register custom message renderer for hindsight-recall messages
+  // Getter for current recall display state — used by dynamic renderers
+  // to re-check toggle state on every render pass, enabling immediate
+  // show/hide when the user toggles display.
+  const getRecallDisplay = () => recallDisplayOverride ?? config.recallDisplay;
+
+  // Register custom message renderer for hindsight-recall messages.
+  // Uses dynamic components that check the runtime toggle on every render()
+  // call, so toggling display immediately shows/hides existing messages.
   pi.registerMessageRenderer<RecallMessageDetails>(
     "hindsight-recall",
     (message, { expanded }, theme) => {
@@ -116,19 +131,10 @@ export default function (pi: ExtensionAPI) {
       if (!details) return undefined;
 
       if (expanded) {
-        // Use a custom component for full-width separators
-        return new RecallExpandedComponent(details, theme);
+        return new RecallExpandedComponent(details, theme, getRecallDisplay);
       }
 
-      // When collapsed: show summary with snippet
-      const text =
-        theme.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
-        theme.fg("muted", `${details.count} ${details.count === 1 ? "memory" : "memories"}`) +
-        " " +
-        theme.fg("dim", `[${details.snippet}]`);
-      const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-      box.addChild(new Text(text, 0, 0));
-      return box;
+      return new RecallCollapsedComponent(details, theme, getRecallDisplay);
     }
   );
 
@@ -152,12 +158,17 @@ export default function (pi: ExtensionAPI) {
 
     if (!lastUserContent) return;
 
+    // When recallPersist is true, always use display: true so the message is
+    // added to the TUI chat container. The custom renderer dynamically checks
+    // the runtime toggle on every render() call to show/hide the content.
+    // When recallPersist is false, the message is ephemeral (not in TUI), so
+    // display doesn't affect rendering — use the current config/override value.
+    const displayValue = config.recallPersist
+      ? true
+      : (recallDisplayOverride ?? config.recallDisplay);
+
     // Call shared recall helper
-    const result = await doAutoRecall(
-      lastUserContent,
-      ctx.signal,
-      recallDisplayOverride ?? config.recallDisplay
-    );
+    const result = await doAutoRecall(lastUserContent, ctx.signal, displayValue);
     if (result) {
       lastRecallMessage = result.recallMessage;
       // Only persist to session file when recallPersist is true
@@ -330,18 +341,56 @@ export default function (pi: ExtensionAPI) {
 }
 
 /**
- * Custom component for rendering expanded recall messages with full-width separators.
- * Separators stretch to fill the terminal width, like tool block borders.
+ * Custom component for rendering collapsed recall messages.
+ * Dynamically checks the runtime display toggle on every render() call,
+ * so toggling display immediately shows/hides the message content.
  */
-class RecallExpandedComponent implements Component {
+class RecallCollapsedComponent implements Component {
   constructor(
     private details: RecallMessageDetails,
-    private theme: Theme
+    private theme: Theme,
+    private getDisplay: () => boolean
   ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
+    if (!this.getDisplay()) {
+      return [];
+    }
+
+    const th = this.theme;
+    const text =
+      th.fg("accent", "\ud83e\udde0 Hindsight recalled ") +
+      th.fg("muted", `${this.details.count} ${this.details.count === 1 ? "memory" : "memories"}`) +
+      " " +
+      th.fg("dim", `[${this.details.snippet}]`);
+    const box = new Box(1, 1, (t) => th.bg("customMessageBg", t));
+    box.addChild(new Text(text, 0, 0));
+    return box.render(width);
+  }
+}
+
+/**
+ * Custom component for rendering expanded recall messages with full-width separators.
+ * Separators stretch to fill the terminal width, like tool block borders.
+ * Dynamically checks the runtime display toggle on every render() call,
+ * so toggling display immediately shows/hides the message content.
+ */
+class RecallExpandedComponent implements Component {
+  constructor(
+    private details: RecallMessageDetails,
+    private theme: Theme,
+    private getDisplay: () => boolean
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    if (!this.getDisplay()) {
+      return [];
+    }
+
     const th = this.theme;
     // Build content with full-width separators inside a Box with customMessageBg
     const box = new Box(1, 1, (t) => th.bg("customMessageBg", t));
@@ -372,9 +421,18 @@ export interface RecallMessageDetails {
 }
 
 /**
- * Format recall results into a hidden message with hindsight_memories fencing.
+ * Format recall results into a custom message with hindsight_memories fencing.
  * Precondition: results must be non-empty (caller checks results.length > 0).
- * Uses display: false so message is sent to LLM but not shown to user or persisted.
+ *
+ * The `display` parameter controls TUI visibility:
+ * - When recallPersist is true, display is always true (message is persisted to
+ *   session and added to chat container; the custom renderer dynamically checks
+ *   the runtime toggle to show/hide content).
+ * - When recallPersist is false, the caller passes the current
+ *   recallDisplay/override value, which may be true or false. However, since
+ *   the message is ephemeral (not added to the TUI chat container), the
+ *   display value has no practical effect on rendering — it only controls
+ *   whether pi's addMessageToChat adds a CustomMessageComponent.
  *
  * Memory context fencing format inspired by Hermes + Hindsight:
  * <hindsight_memories>
