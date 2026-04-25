@@ -134,7 +134,7 @@ export function createParseAndUpsertSessionSubcommand(
 /**
  * Create the upsert-all-parsed subcommand — upsert all previously parsed sessions.
  *
- * Reads all `.jsonl` files from the parsed-sessions directory and upserts them
+ * Reads all `.json` files from the parsed-sessions directory and upserts them
  * to Hindsight, including configured entities. Checks for abort between iterations.
  */
 export function createUpsertAllParsedSubcommand(
@@ -155,7 +155,7 @@ export function createUpsertAllParsedSubcommand(
         return;
       }
 
-      const files = readdirSync(parsedDir).filter((f) => f.endsWith(".jsonl"));
+      const files = readdirSync(parsedDir).filter((f) => f.endsWith(".json"));
       if (files.length === 0) {
         ctx.ui.notify("No parsed sessions found", "error");
         return;
@@ -181,7 +181,7 @@ export function createUpsertAllParsedSubcommand(
         if (ctx.signal?.aborted) break;
 
         const parsedPath = join(parsedDir, file);
-        const sessionId = file.replace(".jsonl", "");
+        const sessionId = file.replace(".json", "");
 
         try {
           const parsed = JSON.parse(readFileSync(parsedPath, "utf8"));
