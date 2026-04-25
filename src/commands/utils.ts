@@ -101,7 +101,7 @@ export function parseCurrentSession(
   if (!existsSync(parsedDir)) {
     mkdirSync(parsedDir, { recursive: true });
   }
-  const outputPath = join(parsedDir, `${header.id}.jsonl`);
+  const outputPath = join(parsedDir, `${header.id}.json`);
   writeFileSync(outputPath, `${JSON.stringify(parsedSession)}\n`, "utf8");
 
   return { parsedSession, outputPath };

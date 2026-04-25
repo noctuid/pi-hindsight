@@ -819,7 +819,7 @@ describe("registerCommands", () => {
       const { join } = await import("node:path");
       const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      const testFile = join(parsedDir, "test-upsert-confirm.jsonl");
+      const testFile = join(parsedDir, "test-upsert-confirm.json");
 
       mkdirSync(parsedDir, { recursive: true });
       writeFile(
@@ -874,7 +874,7 @@ describe("registerCommands", () => {
       const { join } = await import("node:path");
       const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      const testFile = join(parsedDir, "test-upsert-cancel.jsonl");
+      const testFile = join(parsedDir, "test-upsert-cancel.json");
 
       mkdirSync(parsedDir, { recursive: true });
       writeFile(
@@ -920,7 +920,7 @@ describe("registerCommands", () => {
       const { join } = await import("node:path");
       const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
-      const testFile = join(parsedDir, "test-upsert-proceed.jsonl");
+      const testFile = join(parsedDir, "test-upsert-proceed.json");
 
       mkdirSync(parsedDir, { recursive: true });
       writeFile(
