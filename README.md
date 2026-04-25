@@ -180,7 +180,7 @@ When `recallPersist: false` (default):
 - Recall messages are ephemeral - sent to LLM but not displayed or persisted except for the most recent message with `/hindsight popup`
 - Uses `context` event for injection
 - No risk of old recall messages polluting context
-- `recallDisplay: true` has no effect (context event never shows in TUI)
+- `recallDisplay: true` has no effect (memories are not stored and cannot be shown in chat; only the most recent is available via `/hindsight popup`)
 
 ## Status Bar Indicator
 The extension shows a health indicator in pi's status bar:

@@ -846,7 +846,7 @@ export function validateConfig(config: HindsightConfig): {
   // Warn if recallDisplay is true but recallPersist is false
   if (config.recallDisplay && !config.recallPersist) {
     warnings.push(
-      "recallDisplay: true has no effect when recallPersist: false (context event never shows in TUI)"
+      "recallDisplay: true has no effect when recallPersist: false (memories are not stored and cannot be shown in chat; only the most recent is available via /hindsight popup)"
     );
   }
 
