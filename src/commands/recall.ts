@@ -23,10 +23,10 @@ export function createToggleDisplaySubcommand(
   return {
     description: "Toggle recall message display",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      // Cannot toggle when recallPersist is false (context event never shows in TUI)
+      // Cannot toggle when recallPersist is false (memories not stored, cannot show in chat)
       if (!config.recallPersist) {
         ctx.ui.notify(
-          "Cannot toggle display: recallPersist is false (context event never shows in TUI)",
+          "Cannot toggle display: recallPersist is false (memories are not stored and cannot be shown in chat; only the most recent is available via /hindsight popup)",
           "warning"
         );
         return;
