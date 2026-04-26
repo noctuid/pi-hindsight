@@ -10,6 +10,7 @@ Status: This is currently alpha level software. I recommend waiting until I publ
 - [Configuration](#configuration)
   - [Example Configuration](#example-configuration)
   - [General Settings](#general-settings)
+    - [Disabled Mode](#disabled-mode)
   - [Auto-Recall Settings](#auto-recall-settings)
     - [autoRecallPersist Tradeoffs](#autorecallpersist-tradeoffs)
   - [Status Bar Indicator](#status-bar-indicator)
@@ -157,6 +158,7 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `enabled` | `true` | Enable or disable the extension. When `false`, the extension runs in a lightweight disabled mode (see [Disabled Mode](#disabled-mode)). |
 | `toolsEnabled` | `true` | Register hindsight_retain/recall/reflect tools for the agent |
 | `autoRecallEnabled` | `true` | Automatically recall relevant memories before each LLM call |
 | `autoRetainEnabled` | `true` | Automatically queue messages for retention on `message_end` (see [Session Retention Control](#session-retention-control)) |
@@ -169,23 +171,43 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 | `constantTags` | `["harness:pi"]` | Tags included on every retained document (useful for filtering in Hindsight) |
 | `flushOnCompact` | `false` | Flush queued messages to Hindsight after a compaction event |
 
+### Disabled Mode
+When `enabled: false`, pi-hindsight runs in a lightweight disabled mode. No tools, commands, API client, auto-recall, auto-retain, or status indicator are registered. However, two things are still handled:
+
+1. **Context filtering**: `hindsight-recall` custom messages are filtered from the LLM context, preventing stale recall messages from being sent to the model. This is important if you previously used `autoRecallPersist: true` — without this filter, old recall messages in the session file would be sent to the LLM as regular conversation.
+
+2. **Custom message renderer**: The `hindsight-recall` renderer is still registered based on `autoRecallDisplay`:
+   - **`autoRecallDisplay: true`** — Persisted recall messages render with their formatted content (collapsed/expanded), so they display nicely in the TUI even though the extension is disabled.
+   - **`autoRecallDisplay: false`** (default) — The renderer hides recall messages from the chat (returns empty lines), preventing raw custom message data from appearing.
+
+> **Note:** When disabled, the `/hindsight toggle-display` command is not available, so `autoRecallDisplay` can only be controlled via the config file or `PI_HINDSIGHT_AUTO_RECALL_DISPLAY` environment variable.
+
+This ensures that disabling the extension does not leave stale data in your sessions — recall messages are both filtered from the LLM context and properly rendered (or hidden) in the UI.
+
+**If you stop using Hindsight entirely**, you have two options:
+1. Keep pi-hindsight installed with `enabled: false` (this disabled mode) — recall messages will continue to be filtered from context and rendered/hidden in the UI
+2. Uninstall pi-hindsight and manually remove all `hindsight-recall` entries from your session files — without the extension, these custom messages would otherwise be sent to the LLM as regular conversation messages (`hindsight-meta` entries are safe to leave since they are custom entries, not messages, and won't appear in the LLM context)
+
 ## Auto-Recall Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `recallShowDateTime` | `true` | Include current date/time above recalled memories |
-| `autoRecallDisplay` | `false` | Show recalled messages in the UI (only works with `autoRecallPersist: true`) |
+| `autoRecallDisplay` | `false` | Show recalled messages in the UI. With `autoRecallPersist: true`, controls whether new recall messages are visible in chat. Also affects rendering of previously persisted recall messages (e.g. when `enabled: false`, see [Disabled Mode](#disabled-mode)). |
 | `autoRecallPersist` | `false` | Save recall messages to session file (visible in TUI after restart). When `true`, uses `before_agent_start` event for visible, persisted messages. When `false`, uses `context` event for ephemeral messages not shown in TUI. |
 | `recallTypes` | `["observation"]` | Memory types to recall. Set to `null` or `[]` to recall all types. |
 
 > **Note:** observations are deduplicated consolidated information about memories and probably the most useful recall type. See [hindsight issue #826](https://github.com/vectorize-io/hindsight/issues/826) for more information.
 
 ### autoRecallPersist Tradeoffs
+
+See also: [Disabled Mode](#disabled-mode) — recommended if you stop using Hindsight but have persisted recall messages in session files.
+
 When `autoRecallPersist: true`:
 - Recall messages are visible in the TUI and saved to the session file
 - Uses `before_agent_start` event to inject messages
 - Context filtering in the `context` event prevents old recall messages from being re-sent to the LLM
-- **Important**: If pi-hindsight is not loaded, old recall messages in the session file will be sent to the LLM; if you stop using pi-hindsight, you should filter them out yourself or remove them from your session files
+- **Important**: If pi-hindsight is not loaded at all (e.g. uninstalled), old recall messages in the session file will be sent to the LLM. When `enabled: false`, the extension still filters recall messages from context and registers the renderer, so this is only a concern if the extension is completely absent.
 - `autoRecallDisplay: true` can be used to show recall messages to the user
 
 When `autoRecallPersist: false` (default):
@@ -199,7 +221,7 @@ The extension shows a health indicator in pi's status bar:
 - 🧠 (healthy) — Config is valid with no warnings or errors
 - 🤯 (unhealthy) — Config has validation errors or load warnings
 
-Both indicator texts are configurable via `statusHealthy` and `statusUnhealthy` options. If `enabled: false`, no status indicator is shown.
+Both indicator texts are configurable via `statusHealthy` and `statusUnhealthy` options. If `enabled: false`, no status indicator is shown (the extension runs in lightweight disabled mode).
 
 ## Session Retention Control
 Session retention has two config settings that serve distinct purposes:

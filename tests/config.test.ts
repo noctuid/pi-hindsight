@@ -147,7 +147,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "autoRecallDisplay: true has no effect when autoRecallPersist: false (memories are not stored and cannot be shown in chat; only the most recent is available via /hindsight popup)"
+      "autoRecallDisplay: true will not show new recall messages when autoRecallPersist: false (new recalls are ephemeral and not added to chat; only the most recent is available via /hindsight popup). However, autoRecallDisplay still affects rendering of previously persisted recall messages in session files (e.g. when enabled: false)."
     );
   });
 

@@ -752,7 +752,7 @@ describe("real entrypoint bootstrap", () => {
     deleteAutoQueue(BOOTSTRAP_SESSION);
   });
 
-  it("disabled extension only registers context handler", async () => {
+  it("disabled extension registers context handler and message renderer", async () => {
     activeConfig = { ...testConfig, enabled: false };
 
     const pi = createMockPi();
@@ -760,7 +760,81 @@ describe("real entrypoint bootstrap", () => {
     extension.default(pi);
 
     expect(pi.handlers.has("context")).toBe(true);
+    expect(pi.renderers.has("hindsight-recall")).toBe(true);
+    // Only context handler (renderer is tracked separately)
     expect(pi.handlers.size).toBe(1);
+  });
+
+  it("disabled extension renderer hides messages when autoRecallDisplay is false", async () => {
+    activeConfig = { ...testConfig, enabled: false, autoRecallDisplay: false };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const renderer = pi.renderers.get("hindsight-recall") as (
+      message: Record<string, unknown>,
+      options: { expanded: boolean },
+      theme: Record<string, unknown>
+    ) => { render: (width: number) => string[] } | undefined;
+    const details = { count: 1, snippet: "test", memories: "test memory" };
+    const component = renderer({ details }, { expanded: false }, {});
+    expect(component).toBeDefined();
+    // When display is false, render returns empty lines
+    const lines = component!.render(80);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("disabled extension renderer shows messages when autoRecallDisplay is true", async () => {
+    activeConfig = { ...testConfig, enabled: false, autoRecallDisplay: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const renderer = pi.renderers.get("hindsight-recall") as (
+      message: Record<string, unknown>,
+      options: { expanded: boolean },
+      theme: Record<string, unknown>
+    ) => { render: (width: number) => string[] } | undefined;
+    const details = { count: 1, snippet: "test", memories: "test memory" };
+    const mockTheme = {
+      fg: (_color: unknown, text: string) => text,
+      bg: (_color: unknown, text: string) => text,
+    };
+    const component = renderer({ details }, { expanded: false }, mockTheme);
+    expect(component).toBeDefined();
+    // When display is true, render returns non-empty lines
+    const lines = component!.render(80);
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
+  it("disabled extension renderer ignores autoRecallDisplayOverride (toggle-display command not registered)", async () => {
+    // In disabled mode, the toggle-display command is not registered, so the
+    // override can never be set. The renderer should use config.autoRecallDisplay
+    // directly, not autoRecallDisplayOverride ?? config.autoRecallDisplay.
+    // We verify this by testing both display states — the renderer behavior
+    // is determined solely by config, since there is no way to set an override.
+    activeConfig = { ...testConfig, enabled: false, autoRecallDisplay: false };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const renderer = pi.renderers.get("hindsight-recall") as (
+      message: Record<string, unknown>,
+      options: { expanded: boolean },
+      theme: Record<string, unknown>
+    ) => { render: (width: number) => string[] } | undefined;
+    const details = { count: 1, snippet: "test", memories: "test memory" };
+    const component = renderer({ details }, { expanded: false }, {});
+    expect(component).toBeDefined();
+    // config.autoRecallDisplay: false → renderer hides messages
+    expect(component!.render(80)).toHaveLength(0);
+
+    // Verify no commands registered in disabled mode
+    // (toggle-display cannot be invoked, so override can never be set)
+    expect(pi.commands.size).toBe(0);
   });
 
   it("disabled extension context handler filters recall messages", async () => {
