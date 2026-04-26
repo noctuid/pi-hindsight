@@ -38,23 +38,69 @@ export function _resetState(): void {
   lastRecallDetails = null;
 }
 
+/**
+ * Register a context handler that filters hindsight-recall messages from
+ * being sent to the LLM. Used in both enabled and disabled modes to prevent
+ * stale recall messages from polluting the model's context.
+ */
+function registerRecallFilter(pi: ExtensionAPI): void {
+  pi.on("context", async (event) => {
+    const messages = event.messages as Array<{ customType?: string }>;
+    const filtered = messages.filter((msg) => msg.customType !== "hindsight-recall");
+    if (filtered.length !== messages.length) {
+      return { messages: filtered } as Record<string, unknown>;
+    }
+  });
+}
+
+/**
+ * Register the custom message renderer for hindsight-recall messages.
+ * The getDisplay callback is consulted on every render() call, enabling
+ * dynamic show/hide when the user toggles display at runtime.
+ *
+ * @param getDisplay - Returns whether recall messages should be visible
+ */
+function registerRecallRenderer(pi: ExtensionAPI, getDisplay: () => boolean): void {
+  pi.registerMessageRenderer<RecallMessageDetails>(
+    "hindsight-recall",
+    (message, { expanded }, theme) => {
+      const details = message.details;
+      if (!details) return undefined;
+
+      if (expanded) {
+        return new RecallExpandedComponent(details, theme, getDisplay);
+      }
+
+      return new RecallCollapsedComponent(details, theme, getDisplay);
+    }
+  );
+}
+
 export default function (pi: ExtensionAPI) {
   // Load and validate config
   const { config, configPath, warning, envVars } = loadConfig();
   const validation = validateConfig(config);
 
   // Global disable check
-  // Note: register a lightweight context handler to filter hindsight-recall
-  // messages even when disabled (prevents stale recalls from reaching the LLM)
+  // Even when disabled, we register handlers to ensure:
+  // 1. hindsight-recall messages are filtered from LLM context (prevents stale
+  //    recalls from reaching the model)
+  // 2. The custom message renderer is registered so persisted recall messages
+  //    display correctly based on autoRecallDisplay:
+  //    - autoRecallDisplay: true  → messages render with formatted content
+  //    - autoRecallDisplay: false → renderer hides messages from the chat
+  //      (returns empty lines), preventing raw custom message data from showing
   if (!config.enabled) {
     console.log("pi-hindsight disabled via config");
-    pi.on("context", async (event) => {
-      const messages = event.messages as Array<{ customType?: string }>;
-      const filtered = messages.filter((msg) => msg.customType !== "hindsight-recall");
-      if (filtered.length !== messages.length) {
-        return { messages: filtered } as Record<string, unknown>;
-      }
-    });
+
+    // Filter hindsight-recall messages from context
+    registerRecallFilter(pi);
+
+    // Register custom message renderer. autoRecallDisplayOverride is not
+    // consulted because the toggle-display command is not registered in
+    // disabled mode, so the override can never be set.
+    registerRecallRenderer(pi, () => config.autoRecallDisplay);
+
     return;
   }
 
@@ -135,19 +181,7 @@ export default function (pi: ExtensionAPI) {
   // Register custom message renderer for hindsight-recall messages.
   // Uses dynamic components that check the runtime toggle on every render()
   // call, so toggling display immediately shows/hides existing messages.
-  pi.registerMessageRenderer<RecallMessageDetails>(
-    "hindsight-recall",
-    (message, { expanded }, theme) => {
-      const details = message.details;
-      if (!details) return undefined;
-
-      if (expanded) {
-        return new RecallExpandedComponent(details, theme, getRecallDisplay);
-      }
-
-      return new RecallCollapsedComponent(details, theme, getRecallDisplay);
-    }
-  );
+  registerRecallRenderer(pi, getRecallDisplay);
 
   // Auto-recall on before_agent_start.
   // Always performs recall and caches the result for the context handler to re-inject.
