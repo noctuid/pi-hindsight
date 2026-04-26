@@ -42,7 +42,7 @@ export const testConfig: HindsightConfig = {
   toolFilter: {},
   flushOnCompact: false,
   entities: [],
-  observationScopes: null,
+  observationScopes: [["{session}"]] as string[][],
   statusHealthy: "🧠",
   retainSessionsByDefault: true,
   statusUnhealthy: "🤯",

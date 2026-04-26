@@ -47,7 +47,7 @@ const validConfig: HindsightConfig = {
   toolFilter: {},
   flushOnCompact: false,
   entities: [],
-  observationScopes: null,
+  observationScopes: [["{session}"]] as string[][],
   statusHealthy: "🧠",
   retainSessionsByDefault: true,
   statusUnhealthy: "🤯",
@@ -1279,6 +1279,7 @@ describe("loadConfig", () => {
         apiUrl: "https://test.test",
         apiKey: "test-key",
         bankId: "test-bank",
+        observationScopes: [["{session}"]],
         toolFilter: {},
       })
     );
@@ -1291,9 +1292,14 @@ describe("loadConfig", () => {
 });
 
 describe("observationScopes", () => {
-  it("defaults to null", () => {
+  it("defaults to null (invalid — must be set)", () => {
     const { config } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
+    const { valid, errors } = validateConfig(config);
+    expect(valid).toBe(false);
+    expect(errors).toContain(
+      "observationScopes: is required (must be a preset string or an array of tag arrays)"
+    );
   });
 
   it("accepts preset string from config file", () => {
@@ -1322,7 +1328,7 @@ describe("observationScopes", () => {
     expect(config.observationScopes).toEqual([["session:abc", "user:alice"], ["project:foo"]]);
   });
 
-  it("accepts null from config file", () => {
+  it("rejects null from config file (loadConfig warns, validateConfig errors)", () => {
     writeFileSync(
       join(TEST_DIR, "config.jsonc"),
       JSON.stringify({
@@ -1331,8 +1337,14 @@ describe("observationScopes", () => {
         observationScopes: null,
       })
     );
-    const { config } = loadConfig(TEST_DIR);
+    const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
+    expect(warning).toContain("observationScopes is required");
+    const { valid, errors } = validateConfig(config);
+    expect(valid).toBe(false);
+    expect(errors).toContain(
+      "observationScopes: is required (must be a preset string or an array of tag arrays)"
+    );
   });
 
   it("accepts preset string from env var", () => {
@@ -1347,10 +1359,16 @@ describe("observationScopes", () => {
     expect(config.observationScopes).toEqual([["session:abc"]]);
   });
 
-  it("accepts null JSON from env var", () => {
+  it("rejects null from env var (loadConfig warns, validateConfig errors)", () => {
     process.env.PI_HINDSIGHT_OBSERVATION_SCOPES = "null";
-    const { config } = loadConfig(TEST_DIR);
+    const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
+    expect(warning).toContain("observationScopes is required");
+    const { valid, errors } = validateConfig(config);
+    expect(valid).toBe(false);
+    expect(errors).toContain(
+      "observationScopes: is required (must be a preset string or an array of tag arrays)"
+    );
   });
 
   it("falls back to default for invalid env var", () => {
@@ -1451,12 +1469,6 @@ describe("observationScopes", () => {
 });
 
 describe("validateConfig for observationScopes", () => {
-  it("accepts null observationScopes", () => {
-    const result = validateConfig({ ...validConfig, observationScopes: null });
-    expect(result.valid).toBe(true);
-    expect(result.errors).toHaveLength(0);
-  });
-
   it("accepts preset string observationScopes", () => {
     for (const preset of ["per_tag", "combined", "all_combinations"]) {
       const result = validateConfig({
@@ -1474,6 +1486,17 @@ describe("validateConfig for observationScopes", () => {
     });
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
+  });
+
+  it("rejects null observationScopes", () => {
+    const result = validateConfig({
+      ...validConfig,
+      observationScopes: null,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "observationScopes: is required (must be a preset string or an array of tag arrays)"
+    );
   });
 
   it("rejects empty top-level array", () => {
@@ -1501,7 +1524,7 @@ describe("validateConfig for observationScopes", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("rejects non-null/string/array value", () => {
+  it("rejects non-string/array value", () => {
     const result = validateConfig({
       ...validConfig,
       observationScopes: 42 as unknown as HindsightConfig["observationScopes"],

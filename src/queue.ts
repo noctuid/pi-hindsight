@@ -36,7 +36,7 @@ export type ToolQueueEntry = {
   /** When the entry was queued (ISO 8601) */
   timestamp: string;
   store_method: "tool";
-  /** Omitted when config observationScopes is null (meaning use Hindsight default) */
+  /** Observation scopes for controlling how observations are consolidated. */
   observation_scopes?: Exclude<ObservationScopes, null>;
 };
 

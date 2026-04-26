@@ -710,6 +710,10 @@ describe("observationScopes", () => {
   });
 
   it("does not include observation_scopes when config is null", () => {
+    const configWithNullScopes: HindsightConfig = {
+      ...defaultConfig,
+      observationScopes: null,
+    };
     const success = queueToolRetain(
       TEST_SESSION_ID,
       "Remember this",
@@ -717,7 +721,7 @@ describe("observationScopes", () => {
       undefined,
       "/home/user/project",
       undefined,
-      defaultConfig
+      configWithNullScopes
     );
 
     expect(success).toBe(true);

@@ -454,7 +454,7 @@ function setConfigValue(
     case "observationScopes": {
       if (value === null || value === undefined || value === "") {
         config[key] = null;
-        return;
+        return `observationScopes is required. Set a preset ("per_tag", "combined", "all_combinations") or an array of tag arrays.`;
       }
       if (typeof value === "string") {
         // Could be a preset string or JSON string (from env var or config file)
@@ -463,12 +463,12 @@ function setConfigValue(
           config[key] = value as ObservationScopes;
           return;
         }
-        // Try parsing as JSON (for arrays or null)
+        // Try parsing as JSON (for arrays)
         try {
           const parsed = JSON.parse(value);
           if (parsed === null) {
             config[key] = null;
-            return;
+            return `observationScopes is required. Set a preset ("per_tag", "combined", "all_combinations") or an array of tag arrays.`;
           }
           const validated = validateObservationScopes(parsed);
           if (validated !== undefined) {
@@ -476,7 +476,7 @@ function setConfigValue(
             return;
           }
           config[key] = DEFAULT_CONFIG[key] as ObservationScopes;
-          return `observationScopes: invalid value. Expected "per_tag", "combined", "all_combinations", an array of tag arrays, or null.`;
+          return `observationScopes: invalid value. Expected "per_tag", "combined", "all_combinations", or an array of tag arrays.`;
         } catch {
           config[key] = DEFAULT_CONFIG[key] as ObservationScopes;
           return `observationScopes contains invalid JSON. Using default.`;
@@ -490,7 +490,7 @@ function setConfigValue(
           return;
         }
         config[key] = DEFAULT_CONFIG[key] as ObservationScopes;
-        return `observationScopes: invalid value. Expected "per_tag", "combined", "all_combinations", an array of tag arrays, or null.`;
+        return `observationScopes: invalid value. Expected "per_tag", "combined", "all_combinations", or an array of tag arrays.`;
       }
     }
     case "apiUrl":
@@ -587,7 +587,7 @@ export function expandScopePlaceholders(
 
 /**
  * Expand observation scope placeholders for a specific session.
- * Returns undefined when observationScopes is not configured (null/falsy).
+ * Returns undefined when observationScopes is null (not configured).
  */
 export function expandSessionObservationScopes(
   config: Pick<HindsightConfig, "observationScopes">,
@@ -812,41 +812,43 @@ export function validateConfig(config: HindsightConfig): {
     }
   }
 
-  // Validate observationScopes
-  if (config.observationScopes !== null) {
-    if (typeof config.observationScopes === "string") {
-      const validPresets = ["per_tag", "combined", "all_combinations"];
-      if (!validPresets.includes(config.observationScopes)) {
-        errors.push(
-          `observationScopes: invalid preset "${config.observationScopes}". Expected "per_tag", "combined", or "all_combinations"`
-        );
-      }
-    } else if (Array.isArray(config.observationScopes)) {
-      if (config.observationScopes.length === 0) {
-        errors.push("observationScopes: array must not be empty");
-      }
-      for (let i = 0; i < config.observationScopes.length; i++) {
-        const group = config.observationScopes[i];
-        if (!Array.isArray(group)) {
-          errors.push(`observationScopes[${i}]: must be an array of strings`);
-        } else if (group.length === 0) {
-          errors.push(`observationScopes[${i}]: must not be empty`);
-        } else {
-          for (let j = 0; j < group.length; j++) {
-            if (typeof group[j] !== "string") {
-              errors.push(`observationScopes[${i}][${j}]: must be a string`);
-            }
+  // Validate observationScopes (required — must not be null)
+  if (config.observationScopes === null) {
+    errors.push(
+      "observationScopes: is required (must be a preset string or an array of tag arrays)"
+    );
+  } else if (typeof config.observationScopes === "string") {
+    const validPresets = ["per_tag", "combined", "all_combinations"];
+    if (!validPresets.includes(config.observationScopes)) {
+      errors.push(
+        `observationScopes: invalid preset "${config.observationScopes}". Expected "per_tag", "combined", or "all_combinations"`
+      );
+    }
+  } else if (Array.isArray(config.observationScopes)) {
+    if (config.observationScopes.length === 0) {
+      errors.push("observationScopes: array must not be empty");
+    }
+    for (let i = 0; i < config.observationScopes.length; i++) {
+      const group = config.observationScopes[i];
+      if (!Array.isArray(group)) {
+        errors.push(`observationScopes[${i}]: must be an array of strings`);
+      } else if (group.length === 0) {
+        errors.push(`observationScopes[${i}]: must not be empty`);
+      } else {
+        for (let j = 0; j < group.length; j++) {
+          if (typeof group[j] !== "string") {
+            errors.push(`observationScopes[${i}][${j}]: must be a string`);
           }
         }
       }
-      // Warn on non-exact placeholder usage
-      const placeholderWarnings = checkScopePlaceholderWarnings(config.observationScopes);
-      for (const w of placeholderWarnings) {
-        warnings.push(w);
-      }
-    } else {
-      errors.push("observationScopes: must be null, a preset string, or an array of tag arrays");
     }
+    // Warn on non-exact placeholder usage
+    const placeholderWarnings = checkScopePlaceholderWarnings(config.observationScopes);
+    for (const w of placeholderWarnings) {
+      warnings.push(w);
+    }
+  } else {
+    errors.push("observationScopes: must be a preset string or an array of tag arrays");
   }
 
   // Warn if autoRecallDisplay is true but autoRecallPersist is false
