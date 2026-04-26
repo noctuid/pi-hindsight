@@ -115,17 +115,20 @@ Create a basic `~/.pi/agent/extensions/pi-hindsight/config.jsonc`:
   "apiUrl": "http://127.0.0.1:9100",
   "apiKey": "unused",
   "bankId": "default",
-  // read over tradeoffs before enabling
+  // add a user tag so you can scope observations across all your sessions;
+  // replace <me> with your name/identifier; harness:pi is the default if not configured
+  "constantTags": ["harness:pi", "user:<me>"],
+  // read over tradeoffs before enabling! (link below)
   "autoRecallPersist": true,
   "autoRecallDisplay": true,
-  // recommended to change from default or you will not get cross-session observations
+  // required since the hindsight default would prevent consolidated information across sessions with our tagging
   "observationScopes": [
-    // observations about all pi sessions (could also be something like ["user:<me>"] if you add that as a constant tag)
-    ["harness:pi"],
-    // observations for session
-    ["{session}"],
-    // for specific directories
-    ["{cwd}"]
+    // observations across all your sessions; replace <me> with your identifier
+    ["user:<me>"],
+    // observations for specific directories
+    ["{cwd}"],
+    // per-session observations; only include if you continuously resume the same session or really want observations about individual sessions
+    // ["{session}"]
   ]
 }
 ```
@@ -351,12 +354,16 @@ export PI_HINDSIGHT_ENTITIES='[{"text":"John","type":"PERSON"}]'
 ```
 
 ### `observationScopes`
-Controls how observations are scoped during consolidation. When `null` (default), Hindsight uses its default of `"combined"` (a single consolidation pass with all tags together).
+Controls how observations are scoped during consolidation. **Required** — the default of `null` is invalid and will produce a validation error; you must explicitly set this to a preset or custom scope groups.
 
-**Presets:**
+The automatic `session:`, `parent:`, and `cwd:` tags added during retention make observation scopes important for controlling how observations are consolidated across sessions.
+
+Using custom scope groups is recommended. Most users should combine a per-user scope with a per-directory scope.
+
+**Hindsight Presets:**
+- `"combined"` — A single pass with all tags together (Hindsight default, not recommended)
 - `"per_tag"` — One consolidation pass per individual tag, creating separate observations for each tag
-- `"combined"` — A single pass with all tags together (Hindsight default)
-- `"all_combinations"` — One pass per unique combination of tags
+- `"all_combinations"` — One pass per unique combination of tags (can require *many* passes)
 
 **Custom scope groups:** An array of tag arrays, where each inner array defines a group of tags for one consolidation pass. This gives full control over which tag combinations produce separate observations.
 
@@ -368,27 +375,42 @@ Controls how observations are scoped during consolidation. When `null` (default)
 | `{parent}` | `parent:<parentId>` | Cross-fork observations (falls back to session ID if no parent) |
 | `{cwd}` | `cwd:<path>` | Per-directory observations |
 
-Placeholders must be used as standalone tags — e.g. `["{session}"]` not `["{session}:extra"]`. Non-exact placeholder usage will produce a config warning. This is useful for creating per-session, per-conversation-thread, or per-directory observation scopes.
+Placeholders must be used as standalone tags — e.g. `["{session}"]` not `["{session}:extra"]`. Non-exact placeholder usage will produce a config warning.
 
-Example — Create separate observation scopes for user, assistant, session, parent conversation thread, and working directory:
+**Choosing your scopes:**
+- **Per-session observations** (`["{session}"]`) — facts within a single session only — this is rarely useful unless you frequently resume the same session over and over. In practice, you'll get more value from:
+- **Per-user** (`["user:<me>"]`) — facts that span all your sessions/documents and memories storied manually with `hindsight_retain` tool, even across different harnesses. Add `"user:<me>"` to `constantTags` and use it as a scope. This is the most broadly useful scope.
+- **Per-directory** (`["{cwd}"]`) — facts about a specific project/codebase, consolidated across all sessions in that directory
+- **Per-harness** (`["harness:pi"]`) — facts that span all pi sessions (included as a default constant tag)
+
+
+Recommended example — Per-user scope plus per-directory scope:
 ```jsonc
 {
+  "constantTags": ["harness:pi", "user:<me>"],
   "observationScopes": [
-    ["user:alice"],           // observations scoped to alice's facts
-    ["assistant:code"],       // observations scoped to specific assistant
-    ["{session}"],            // expands to session:<id> — per-session observations
-    ["{parent}"],            // expands to parent:<id> — cross fork observations
-    ["{cwd}"]                // expands to cwd:<path> — per-directory observations
+    ["user:<me>"],   // observations across all your sessions
+    ["{cwd}"]         // observations only from sessions in this directory
   ]
 }
 ```
 
-This would create five consolidation passes, each producing its own set of observations:
-1. One for facts specific to user `alice`
-2. One for facts specific to assistant `code`
-3. One for the current session's observations
-4. One for the full parent thread context
-5. One for the current working directory
+This creates two consolidation passes:
+1. One for facts that span all your sessions (even across different harnesses, assuming you've also tagged those documents with `user:<me>`)
+2. One for facts specific to the current project directory
+
+Full example with all available scopes:
+```jsonc
+{
+  "constantTags": ["harness:pi", "user:<me>"],
+  "observationScopes": [
+    ["user:<me>"],    // observations across all your sessions
+    ["harness:pi"],   // observations across all pi sessions
+    ["{cwd}"],        // observations scoped to this project directory
+    ["{session}"],    // observations scoped to this session only (rarely needed)
+    ["{parent}"]     // observations scoped to the parent conversation thread
+  ]
+}
 
 Or via environment variable as a JSON string:
 ```bash
@@ -457,7 +479,7 @@ Configuration options can also be set via environment variables (override config
 | `PI_HINDSIGHT_STRIP` | `strip` | StripConfig (JSON) | *(see strip default)* |
 | `PI_HINDSIGHT_TOOL_FILTER` | `toolFilter` | ToolFilter (JSON) | *(see toolFilter default)* |
 | `PI_HINDSIGHT_ENTITIES` | `entities` | EntityInput[] (JSON) | `[]` |
-| `PI_HINDSIGHT_OBSERVATION_SCOPES` | `observationScopes` | ObservationScopes (JSON or preset string) | `null` |
+| `PI_HINDSIGHT_OBSERVATION_SCOPES` | `observationScopes` | ObservationScopes (JSON or preset string) | `null` (required) |
 | `PI_HINDSIGHT_STATUS_HEALTHY` | `statusHealthy` | string | `"🧠"` |
 | `PI_HINDSIGHT_STATUS_UNHEALTHY` | `statusUnhealthy` | string | `"🤯"` |
 </details>
