@@ -10,13 +10,13 @@ import { Box, type Component, Text } from "@mariozechner/pi-tui";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { HindsightClientWrapper } from "./client";
 import { registerCommands } from "./commands";
-import { loadConfig, validateConfig } from "./config";
+import { expandAutoRecallTags, loadConfig, validateConfig } from "./config";
 import { getHindsightMeta, shouldSessionBeRetained } from "./meta";
 import { prepareEntry, shouldRetainMessage } from "./prepare";
 import { enqueueAutoMessage } from "./queue";
 import { flushQueues, getQueueCount } from "./retention";
 import { registerTools } from "./tools";
-import { extractParentSessionId, getSessionDisplayName, truncate } from "./utils";
+import { extractParentSessionId, getProjectName, getSessionDisplayName, truncate } from "./utils";
 
 // Runtime toggle for recall display (overrides config)
 let autoRecallDisplayOverride: boolean | null = null;
@@ -206,7 +206,24 @@ export default function (pi: ExtensionAPI) {
       : (autoRecallDisplayOverride ?? config.autoRecallDisplay);
 
     // Call shared recall helper
-    const result = await doAutoRecall(query, ctx.signal, displayValue);
+    const header = ctx.sessionManager.getHeader();
+    const sessionId = ctx.sessionManager.getSessionId();
+    // sessionId is always available by before_agent_start (set during session_start),
+    // so this guard is purely defensive and not practically reachable
+    if (!sessionId) {
+      console.warn("pi-hindsight: auto-recall skipped: no active session");
+      return;
+    }
+    const sessionCwd = header?.cwd || ctx.cwd;
+    const parentSessionId = extractParentSessionId(header?.parentSession);
+    const result = await doAutoRecall(
+      query,
+      ctx.signal,
+      displayValue,
+      sessionId,
+      sessionCwd,
+      parentSessionId
+    );
     if (result) {
       lastRecallMessage = result.recallMessage;
       lastRecallDetails = result.recallMessage.details;
@@ -320,10 +337,28 @@ export default function (pi: ExtensionAPI) {
   async function doAutoRecall(
     query: string,
     signal: AbortSignal | undefined,
-    display: boolean
+    display: boolean,
+    sessionId: string,
+    sessionCwd: string,
+    parentSessionId?: string
   ): Promise<{ recallMessage: ReturnType<typeof formatRecallMessage> } | null> {
+    // Expand recall tag placeholders with session context
+    const expandedTags = expandAutoRecallTags(config.autoRecallTags, {
+      sessionId,
+      sessionCwd,
+      parentSessionId,
+      projectName: getProjectName(sessionCwd),
+    });
+    const recallConfig: AutoRecallConfig = {
+      recallMaxQueryChars: config.recallMaxQueryChars,
+      recallTypes: config.recallTypes,
+      recallPromptPreamble: config.recallPromptPreamble,
+      recallShowDateTime: config.recallShowDateTime,
+      autoRecallTags: expandedTags,
+      autoRecallTagsMatch: config.autoRecallTagsMatch,
+    };
     // Clear stale recall on error/no-results (doAutoRecallImpl calls cacheDetails(null))
-    return doAutoRecallImpl(client, query, signal, display, config, (details) => {
+    return doAutoRecallImpl(client, query, signal, display, recallConfig, (details) => {
       lastRecallMessage = null;
       lastRecallDetails = details;
     });
@@ -583,7 +618,12 @@ export function renderRecallMessage(
  */
 export interface RecallClient {
   recall: (
-    options: { query: string; types?: ("world" | "experience" | "observation")[] },
+    options: {
+      query: string;
+      types?: ("world" | "experience" | "observation")[];
+      tags?: string[];
+      tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+    },
     signal: AbortSignal | undefined
   ) => Promise<{
     success: boolean;
@@ -600,6 +640,8 @@ export interface AutoRecallConfig {
   recallTypes: ("world" | "experience" | "observation")[] | null;
   recallPromptPreamble: string;
   recallShowDateTime: boolean;
+  autoRecallTags: string[] | null;
+  autoRecallTagsMatch: "any" | "all" | "any_strict" | "all_strict";
 }
 
 /**
@@ -633,7 +675,12 @@ export async function doAutoRecallImpl(
     // Create a fallback signal if none provided
     const abortSignal = signal ?? new AbortController().signal;
     const result = await client.recall(
-      { query: truncatedQuery, types: config.recallTypes ?? undefined },
+      {
+        query: truncatedQuery,
+        types: config.recallTypes ?? undefined,
+        tags: config.autoRecallTags ?? undefined,
+        tagsMatch: config.autoRecallTags ? config.autoRecallTagsMatch : undefined,
+      },
       abortSignal
     );
 

@@ -47,6 +47,11 @@ const SCOPE_PLACEHOLDERS: Record<string, string> = {
   "{project}": "project",
 };
 
+/** Tag match strategy for recall filtering. Derived from Hindsight SDK's RecallRequest. */
+export type TagsMatch = NonNullable<
+  Required<import("@vectorize-io/hindsight-client").RecallRequest>["tags_match"]
+>;
+
 export interface HindsightConfig {
   enabled: boolean;
   apiUrl: string;
@@ -65,6 +70,8 @@ export interface HindsightConfig {
   autoRecallPersist: boolean;
   recallMaxQueryChars: number;
   recallTypes: MemoryType[] | null;
+  autoRecallTags: string[] | null;
+  autoRecallTagsMatch: TagsMatch;
   constantTags: string[];
   retainContent: RetainContent;
   strip: StripConfig;
@@ -98,6 +105,8 @@ const DEFAULT_CONFIG: HindsightConfig = {
   autoRecallPersist: false,
   recallMaxQueryChars: 800,
   recallTypes: ["observation"],
+  autoRecallTags: null,
+  autoRecallTagsMatch: "any",
   constantTags: ["harness:pi"],
   retainContent: {
     assistant: ["text", "thinking", "toolCall"],
@@ -150,6 +159,8 @@ const VALID_CONFIG_KEYS = new Set<keyof HindsightConfig>([
   "autoRecallPersist",
   "recallMaxQueryChars",
   "recallTypes",
+  "autoRecallTags",
+  "autoRecallTagsMatch",
   "constantTags",
   "retainContent",
   "strip",
@@ -412,6 +423,67 @@ function setConfigValue(
         config[key] = result.value;
         return result.warning;
       }
+    case "autoRecallTags": {
+      if (value === null || value === undefined || value === "") {
+        config[key] = null;
+        return;
+      }
+      if (Array.isArray(value)) {
+        if (value.length === 0) {
+          config[key] = null;
+          return;
+        }
+        if (value.every((item) => typeof item === "string")) {
+          config[key] = value;
+          return;
+        }
+        config[key] = DEFAULT_CONFIG[key];
+        return "autoRecallTags must be a JSON array of strings. Using default.";
+      }
+      // String value from env var - parse as JSON
+      {
+        const strVal = String(value);
+        try {
+          const parsed = JSON.parse(strVal);
+          if (parsed === null) {
+            config[key] = null;
+            return;
+          }
+          if (!Array.isArray(parsed)) {
+            config[key] = DEFAULT_CONFIG[key];
+            return `autoRecallTags must be a JSON array, got ${typeof parsed}. Using default.`;
+          }
+          if (parsed.length === 0) {
+            config[key] = null;
+            return;
+          }
+          if (parsed.every((item: unknown) => typeof item === "string")) {
+            config[key] = parsed;
+            return;
+          }
+          config[key] = DEFAULT_CONFIG[key];
+          return "autoRecallTags must be a JSON array of strings. Using default.";
+        } catch {
+          config[key] = DEFAULT_CONFIG[key];
+          return "autoRecallTags contains invalid JSON. Using default.";
+        }
+      }
+    }
+    case "autoRecallTagsMatch": {
+      const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict"];
+      if (typeof value === "string" && validMatches.includes(value as TagsMatch)) {
+        config[key] = value as TagsMatch;
+        return;
+      }
+      // Try stringifying (for non-string values from config file)
+      const strValue = String(value);
+      if (validMatches.includes(strValue as TagsMatch)) {
+        config[key] = strValue as TagsMatch;
+        return;
+      }
+      config[key] = DEFAULT_CONFIG[key] as TagsMatch;
+      return `Invalid autoRecallTagsMatch "${strValue}", expected one of: ${validMatches.join(", ")}. Using default.`;
+    }
     case "constantTags": {
       if (Array.isArray(value)) {
         config[key] = value;
@@ -559,6 +631,37 @@ function checkScopePlaceholderWarnings(scopes: string[][]): string[] {
   return warnings;
 }
 
+/** Parameters for placeholder expansion. */
+export interface PlaceholderParams {
+  sessionId: string;
+  parentSessionId?: string;
+  sessionCwd?: string;
+  projectName?: string;
+}
+
+/**
+ * Expand a single placeholder tag.
+ * Returns the expanded tag (e.g. "session:abc-123") or the original tag if it's not a placeholder or can't be resolved.
+ */
+function expandPlaceholder(tag: string, params: PlaceholderParams): string {
+  const prefix = SCOPE_PLACEHOLDERS[tag];
+  if (!prefix) return tag;
+
+  if (prefix === "cwd") {
+    return params.sessionCwd ? `cwd:${params.sessionCwd}` : tag;
+  }
+  if (prefix === "basedir") {
+    return params.sessionCwd ? `basedir:${basename(params.sessionCwd)}` : tag;
+  }
+  if (prefix === "project") {
+    const name =
+      params.projectName || (params.sessionCwd ? basename(params.sessionCwd) : undefined);
+    return name ? `project:${name}` : tag;
+  }
+  const id = prefix === "parent" ? (params.parentSessionId ?? params.sessionId) : params.sessionId;
+  return `${prefix}:${id}`;
+}
+
 /**
  * Expand placeholder patterns in observation_scopes arrays.
  * E.g. ["{session}"] -> ["session:<sessionId>"], ["{parent}"] -> ["parent:<parentId>"]
@@ -567,32 +670,11 @@ function checkScopePlaceholderWarnings(scopes: string[][]): string[] {
  */
 export function expandScopePlaceholders(
   scopes: ObservationScopes,
-  params: { sessionId: string; parentSessionId?: string; sessionCwd?: string; projectName?: string }
+  params: PlaceholderParams
 ): ObservationScopes {
   if (scopes === null || typeof scopes === "string") return scopes;
 
-  return scopes.map((group) =>
-    group.map((tag) => {
-      const prefix = SCOPE_PLACEHOLDERS[tag];
-      if (prefix) {
-        if (prefix === "cwd") {
-          return params.sessionCwd ? `cwd:${params.sessionCwd}` : tag;
-        }
-        if (prefix === "basedir") {
-          return params.sessionCwd ? `basedir:${basename(params.sessionCwd)}` : tag;
-        }
-        if (prefix === "project") {
-          const name =
-            params.projectName || (params.sessionCwd ? basename(params.sessionCwd) : undefined);
-          return name ? `project:${name}` : tag;
-        }
-        const id =
-          prefix === "parent" ? (params.parentSessionId ?? params.sessionId) : params.sessionId;
-        return `${prefix}:${id}`;
-      }
-      return tag;
-    })
-  );
+  return scopes.map((group) => group.map((tag) => expandPlaceholder(tag, params)));
 }
 
 /**
@@ -613,6 +695,20 @@ export function expandSessionObservationScopes(
     sessionCwd,
     projectName,
   }) as Exclude<ObservationScopes, null>;
+}
+
+/**
+ * Expand placeholder patterns in auto-recall tags array.
+ * E.g. ["{project}"] -> ["project:myapp"], ["{cwd}"] -> ["cwd:/path/to/dir"]
+ * Only exact placeholder matches are expanded.
+ * Returns null when tags is null (no recall tag filtering).
+ */
+export function expandAutoRecallTags(
+  tags: string[] | null,
+  params: PlaceholderParams
+): string[] | null {
+  if (!tags) return null;
+  return tags.map((tag) => expandPlaceholder(tag, params));
 }
 
 export function loadConfig(extensionsDir?: string): {
@@ -691,6 +787,8 @@ export function loadConfig(extensionsDir?: string): {
     PI_HINDSIGHT_AUTO_RECALL_PERSIST: "autoRecallPersist",
     PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS: "recallMaxQueryChars",
     PI_HINDSIGHT_RECALL_TYPES: "recallTypes",
+    PI_HINDSIGHT_AUTO_RECALL_TAGS: "autoRecallTags",
+    PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH: "autoRecallTagsMatch",
     PI_HINDSIGHT_CONSTANT_TAGS: "constantTags",
     PI_HINDSIGHT_FLUSH_ON_COMPACT: "flushOnCompact",
     PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT: "retainSessionsByDefault",
@@ -861,6 +959,27 @@ export function validateConfig(config: HindsightConfig): {
     }
   } else {
     errors.push("observationScopes: must be a preset string or an array of tag arrays");
+  }
+
+  // Validate autoRecallTags
+  if (config.autoRecallTags !== null) {
+    const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict"];
+    if (!validMatches.includes(config.autoRecallTagsMatch)) {
+      errors.push(
+        `autoRecallTagsMatch: invalid value "${config.autoRecallTagsMatch}". Expected one of: ${validMatches.join(", ")}`
+      );
+    }
+    // Check for non-exact placeholder usage in recall tags
+    const placeholderPatterns = Object.keys(SCOPE_PLACEHOLDERS);
+    for (const tag of config.autoRecallTags) {
+      for (const placeholder of placeholderPatterns) {
+        if (tag !== placeholder && tag.includes(placeholder)) {
+          warnings.push(
+            `autoRecallTags: tag "${tag}" contains placeholder ${placeholder} but is not an exact match; placeholders must be used as standalone tags (e.g. "${placeholder}" not "${tag}")`
+          );
+        }
+      }
+    }
   }
 
   // Warn if autoRecallDisplay is true but autoRecallPersist is false

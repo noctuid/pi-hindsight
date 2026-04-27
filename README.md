@@ -22,6 +22,8 @@ Status: This is currently alpha level software. I recommend waiting until I publ
     - [entities](#entities)
   - [observationScopes](#observationscopes)
     - [Project scope for relocatable projects](#project-scope-for-relocatable-projects)
+  - [autoRecallTags](#autorecalltags)
+  - [Project-specific Recall and Storage](#project-specific-recall-and-storage)
   - [Environment Variables](#environment-variables)
 - [Deviations from Official Integrations](#deviations-from-official-integrations)
 - [Additional Details](#additional-details)
@@ -134,7 +136,10 @@ Create a basic `~/.pi/agent/extensions/pi-hindsight/config.jsonc`:
     // ["{cwd}"],
     // per-session observations; only include if you continuously resume the same session or really want observations about individual sessions
     // ["{session}"]
-  ]
+  ],
+  // scope auto-recall to the current project (optional; default null = recall from entire bank)
+  // "autoRecallTags": ["{project}"],
+  // "autoRecallTagsMatch": "any_strict"
 }
 ```
 See [autoRecallPersist Tradeoffs](#autorecallpersist-tradeoffs) before enabling!
@@ -200,6 +205,8 @@ This ensures that disabling the extension does not leave stale data in your sess
 | `autoRecallDisplay` | `false` | Show recalled messages in the UI. With `autoRecallPersist: true`, controls whether new recall messages are visible in chat. Also affects rendering of previously persisted recall messages (e.g. when `enabled: false`, see [Disabled Mode](#disabled-mode)). |
 | `autoRecallPersist` | `false` | Save recall messages to session file (visible in TUI after restart). When `true`, uses `before_agent_start` event for visible, persisted messages. When `false`, uses `context` event for ephemeral messages not shown in TUI. |
 | `recallTypes` | `["observation"]` | Memory types to recall. Set to `null` or `[]` to recall all types. |
+| `autoRecallTags` | `null` | Tags to filter by during auto-recall. Supports same placeholders as observation scopes (`{session}`, `{parent}`, `{cwd}`, `{basedir}`, `{project}`). `null` means no tag filtering (recall from entire bank). See [autoRecallTags](#autorecalltags). |
+| `autoRecallTagsMatch` | `"any"` | How to match `autoRecallTags`: `"any"` (OR, includes untagged), `"all"` (AND, includes untagged), `"any_strict"` (OR, excludes untagged), `"all_strict"` (AND, excludes untagged). |
 
 > **Note:** observations are deduplicated consolidated information about memories and probably the most useful recall type. See [hindsight issue #826](https://github.com/vectorize-io/hindsight/issues/826) for more information.
 
@@ -461,9 +468,9 @@ You only need to set `PI_HINDSIGHT_PROJECT_NAME` when you have multiple director
 
 Set `PI_HINDSIGHT_PROJECT_NAME` per directory in, e.g. `.env` with [direnv](https://direnv.net/) or [mise](https://mise.jdx.dev/):
 
-```bash
+```envrc
 # In .env per project directory (loaded by direnv or mise):
-export PI_HINDSIGHT_PROJECT_NAME=myapp
+PI_HINDSIGHT_PROJECT_NAME=myapp
 ```
 
 ```jsonc
@@ -482,6 +489,8 @@ export PI_HINDSIGHT_PROJECT_NAME=myapp
 - `{basedir}` — Use when you want observations grouped by directory name regardless of parent path. All directories named `myapp` share observations.
 
 > **Note:** Since `basedir:` and `project:` tags are generated at retain time, re-parsing and re-ingesting a session (via `/hindsight parse-and-upsert-session`) will use the *current* basedir or `PI_HINDSIGHT_PROJECT_NAME`. This means you can change the project identity of an existing session by updating the env var and re-ingesting — useful for correcting or migrating project names after the fact. The `cwd:` tag is fixed from the session header and does not change on re-parse (unless you manually change it).
+>
+> The `cwd:` tag and `{cwd}`/`{basedir}`/`{project}` placeholders (in both observation scopes and auto-recall tags) use the session's cwd from the session header — the directory the session was first created in.
 
 Full example with all available scopes:
 ```jsonc
@@ -504,6 +513,59 @@ export PI_HINDSIGHT_OBSERVATION_SCOPES='[["{session}","user:alice"],["project:fo
 ```
 
 Note: This is currently a config-only setting and not exposed as a parameter on the `hindsight_retain` tool. The configured scope applies to all retains (both auto and tool-initiated).
+
+### autoRecallTags
+Tags to filter by during auto-recall. When set, only memories matching these tags will be recalled. Supports the same placeholder expansion as observation scopes (`{session}`, `{parent}`, `{cwd}`, `{basedir}`, `{project}`), expanded at recall time using the current session context.
+
+**`autoRecallTagsMatch`** controls how tags are matched:
+- `"any"` (default) — OR logic, includes untagged memories. A memory with *any* matching tag is returned.
+- `"all"` — AND logic, includes untagged memories. A memory must have *all* specified tags.
+- `"any_strict"` — OR logic, **excludes** untagged memories. Only returns memories that actually have a matching tag.
+- `"all_strict"` — AND logic, **excludes** untagged memories.
+
+When `autoRecallTags` is `null` (default), no tag filtering is applied and `autoRecallTagsMatch` is ignored — auto-recall searches the entire bank.
+
+**Example — Project-scoped recall:**
+```jsonc
+{
+  "autoRecallTags": ["{project}"],
+  "autoRecallTagsMatch": "any_strict"
+}
+```
+
+**Recall types and tag matching:**
+
+Your `autoRecallTags` configuration depends on which `recallTypes` you use:
+
+- **`recallTypes: ["observation"]`** (default): Observations are tagged exactly according to your observation scopes. If you use `observationScopes: [["{project}"]]`, observations get a `project:<project>` tag and not any others (even constant tags like harness). Using `autoRecallTags: ["harness:pi", "{project}"]` would fail to match any observations.
+- **`recallTypes: ["world", "experience"]`**: World/experience memories are tagged based on all tags from the document they were extracted from, so your observation scopes do not matter.
+
+### Project-specific Recall and Storage
+By combining `autoRecallTags` and `observationScopes`, you can create project-specific memory that's both stored and recalled per-project:
+```jsonc
+{
+  "constantTags": ["harness:pi", "user:<me>"],
+  "observationScopes": [
+    ["user:<me>"],    // global observations across all sessions
+    ["{project}"]      // project-specific observations
+  ],
+  "autoRecallTags": ["{project}"],
+  "autoRecallTagsMatch": "any_strict"
+}
+```
+
+With this configuration:
+- **Retention**: Observations are consolidated per-user (global) and per-project
+- **Recall**: Only memories tagged with the current project name are recalled
+
+If you need backward compatibility with old memories stored under `cwd:` tags where the directory has changed, add the legacy tags via the `PI_HINDSIGHT_AUTO_RECALL_TAGS` env var per-directory (not in config.json, which is shared across all projects):
+```envrc
+# In .env per project directory (loaded by direnv or mise):
+# Supports old memories from a project that has changed directories *and* been renamed
+PI_HINDSIGHT_AUTO_RECALL_TAGS='["cwd:/old/path/to/project-name","project:old-name","{project}"]'
+# OR: match any of the above
+PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH=any_strict
+```
 
 ## Environment Variables
 Configuration options can also be set via environment variables (override config file). This can be used to use different configurations for different wrapper scripts or for different directories by using [mise](https://mise.jdx.dev/installing-mise.html) or [direnv](https://direnv.net/).
@@ -530,6 +592,8 @@ Configuration options can also be set via environment variables (override config
 | `PI_HINDSIGHT_AUTO_RECALL_PERSIST` | `autoRecallPersist` | boolean | `false` |
 | `PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS` | `recallMaxQueryChars` | number | `800` |
 | `PI_HINDSIGHT_RECALL_TYPES` | `recallTypes` | string[] (JSON) | `["observation"]` |
+| `PI_HINDSIGHT_AUTO_RECALL_TAGS` | `autoRecallTags` | string[] (JSON) | `null` |
+| `PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH` | `autoRecallTagsMatch` | string | `"any"` |
 | `PI_HINDSIGHT_CONSTANT_TAGS` | `constantTags` | string[] (JSON) | `["harness:pi"]` |
 | `PI_HINDSIGHT_FLUSH_ON_COMPACT` | `flushOnCompact` | boolean | `false` |
 | `PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT` | `retainSessionsByDefault` | boolean | `true` |
@@ -615,6 +679,7 @@ There are multiple other Hindsight integrations for Pi:
 | Injection preserves prompt caching | ✅ | ✅ | ✅ | ❌⁴ |
 | Multi-bank recall (project + global) | *(planned)* | ✅ | ✅ | ✅ |
 | Configurable recall types | ✅ | ✅ | ✅ | ✅ |
+| Configurable recall tag filtering | ✅ | ❌ | ❌ | ❌ |
 | Custom message renderer | ✅ | ✅ | ✅ | ✅ |
 | Cached context (anti-pattern) | ❌ | ❌ | ❌ | ✅⁵ |
 | Linked host recall (multiple servers) | ❌ | ❌ | ❌ | ✅⁶ |
@@ -688,6 +753,7 @@ There are multiple other Hindsight integrations for Pi:
 - **No cached recall context.** Recall is fast and should be queried fresh each turn based on the current user prompt. Caching recall results (as done by hindsight-pi) is an anti-pattern: it serves stale or irrelevant results when the user's query changes between turns, defeats the purpose of query-dependent recall, and adds unnecessary complexity (TTL management, background refresh, pinning). Each turn should recall based on the actual current user message.
 - **No linked host recall (multiple servers).** This feature allows recalling from multiple Hindsight server instances simultaneously. I can't think of a use case for this — a single Hindsight instance with multiple banks already handles project separation, and the added latency and configuration complexity of cross-server recall doesn't seem justified.
 - **No auto-recall gating** I'm still debating this. Hindsight can produce useful memories even for short messages or even just "continue" (otherwise that turn will not have ephemeral injection), so I'm not sure it makes sense to avoid recall in these situations.
+- **No per-project banks by default.** Observation scopes and tag-based recall filtering provide project-specific memory without the complexity of separate banks. A single bank with proper tagging can scope both retention (via tags and `observationScopes`) and recall (via `autoRecallTags`) per-project while still supporting cross-project/global observations — something per-project banks cannot do. Per-project banks would require managing multiple bank connections, duplicating configuration, and would prevent recalling global context (like user preferences) alongside project-specific memories. The design is optimized around having one or only a couple banks (e.g., separate banks for different classes of work like writing vs programming, or for work vs hobby programming). See [Project-specific Recall and Storage](#project-specific-recall-and-storage) for the recommended single-bank approach.
 
 ## Features inspired by anh-chu/pi-hindsight
 - Storing recalls in the session file and showing them in collapseable blocks with custom message renderer, but optional and opt-in
