@@ -817,7 +817,12 @@ describe("doAutoRecallImpl", () => {
   ): RecallClient {
     return {
       recall: async (
-        _opts: { query: string; types?: ("world" | "experience" | "observation")[] },
+        _opts: {
+          query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          types?: ("world" | "experience" | "observation")[];
+        },
         _signal: AbortSignal | undefined
       ) => {
         if (options.success === false) {
@@ -839,6 +844,8 @@ describe("doAutoRecallImpl", () => {
     recallTypes: null,
     recallPromptPreamble: DEFAULT_PREAMBLE,
     recallShowDateTime: true,
+    autoRecallTags: null,
+    autoRecallTagsMatch: "any",
   };
 
   // Create a mock AbortSignal
@@ -1129,6 +1136,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1159,6 +1168,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1187,6 +1198,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1219,6 +1232,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1245,6 +1260,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1271,6 +1288,8 @@ describe("doAutoRecallImpl", () => {
       const mockClient: RecallClient = {
         recall: async (opts: {
           query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1310,6 +1329,99 @@ describe("doAutoRecallImpl", () => {
 
       expect(result?.recallMessage.content).toContain(customPreamble);
       expect(result?.recallMessage.content).not.toContain(DEFAULT_PREAMBLE);
+    });
+  });
+
+  describe("recall tags filtering", () => {
+    it("passes autoRecallTags to client when configured", async () => {
+      const results: RecallResponse["results"] = [{ id: "1", text: "Memory" }];
+      let receivedTags: string[] | undefined;
+      let receivedTagsMatch: string | undefined;
+
+      const mockClient: RecallClient = {
+        recall: async (opts: {
+          query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          types?: ("world" | "experience" | "observation")[];
+        }) => {
+          receivedTags = opts.tags;
+          receivedTagsMatch = opts.tagsMatch;
+          return { success: true, response: { results } };
+        },
+      };
+
+      await doAutoRecallImpl(
+        mockClient,
+        "test query",
+        mockSignal,
+        false,
+        { ...defaultConfig, autoRecallTags: ["project:myapp"], autoRecallTagsMatch: "any_strict" },
+        () => {}
+      );
+
+      expect(receivedTags).toEqual(["project:myapp"]);
+      expect(receivedTagsMatch).toBe("any_strict");
+    });
+
+    it("passes undefined tags when autoRecallTags is null", async () => {
+      const results: RecallResponse["results"] = [{ id: "1", text: "Memory" }];
+      let receivedTags: string[] | undefined;
+      let receivedTagsMatch: string | undefined;
+
+      const mockClient: RecallClient = {
+        recall: async (opts: {
+          query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          types?: ("world" | "experience" | "observation")[];
+        }) => {
+          receivedTags = opts.tags;
+          receivedTagsMatch = opts.tagsMatch;
+          return { success: true, response: { results } };
+        },
+      };
+
+      await doAutoRecallImpl(
+        mockClient,
+        "test query",
+        mockSignal,
+        false,
+        { ...defaultConfig, autoRecallTags: null, autoRecallTagsMatch: "any" },
+        () => {}
+      );
+
+      expect(receivedTags).toBeUndefined();
+      expect(receivedTagsMatch).toBeUndefined();
+    });
+
+    it("does not pass tagsMatch when autoRecallTags is null", async () => {
+      const results: RecallResponse["results"] = [{ id: "1", text: "Memory" }];
+      let receivedTagsMatch: string | undefined;
+
+      const mockClient: RecallClient = {
+        recall: async (opts: {
+          query: string;
+          tags?: string[];
+          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          types?: ("world" | "experience" | "observation")[];
+        }) => {
+          receivedTagsMatch = opts.tagsMatch;
+          return { success: true, response: { results } };
+        },
+      };
+
+      // Even if autoRecallTagsMatch is set, it should not be passed when autoRecallTags is null
+      await doAutoRecallImpl(
+        mockClient,
+        "test query",
+        mockSignal,
+        false,
+        { ...defaultConfig, autoRecallTags: null, autoRecallTagsMatch: "all_strict" },
+        () => {}
+      );
+
+      expect(receivedTagsMatch).toBeUndefined();
     });
   });
 });

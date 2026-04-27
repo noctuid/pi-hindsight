@@ -17,6 +17,7 @@ import {
   type SessionEntry,
   type SessionHeader,
 } from "../src/document";
+import { HINDSIGHT_ENV_KEYS, saveEnvKeys } from "./fixtures";
 
 // Use a unique temp directory per test run to avoid colliding with real data
 const RUN_ID = `hindsight-doc-test-${Date.now()}`;
@@ -128,7 +129,10 @@ function compactionEntry(id: string, parentId: string): SessionEntry {
 }
 
 // Setup test directory
+let restoreEnv: () => void;
+
 beforeEach(() => {
+  restoreEnv = saveEnvKeys(HINDSIGHT_ENV_KEYS);
   if (existsSync(TEST_HOME)) {
     rmSync(TEST_HOME, { recursive: true, force: true });
   }
@@ -137,6 +141,7 @@ beforeEach(() => {
 
 // Cleanup
 afterEach(() => {
+  restoreEnv();
   if (existsSync(TEST_HOME)) {
     rmSync(TEST_HOME, { recursive: true, force: true });
   }

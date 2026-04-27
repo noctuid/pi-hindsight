@@ -86,7 +86,7 @@ function createMockWrapper(
   };
 }
 
-import { testConfig as sharedTestConfig } from "./fixtures";
+import { HINDSIGHT_ENV_KEYS, saveEnvKeys, testConfig as sharedTestConfig } from "./fixtures";
 
 // Extend shared config with retention-test-specific overrides
 const defaultConfig: HindsightConfig = {
@@ -104,13 +104,17 @@ const defaultConfig: HindsightConfig = {
   },
 };
 
+let restoreEnv: () => void;
+
 beforeEach(() => {
+  restoreEnv = saveEnvKeys(HINDSIGHT_ENV_KEYS);
   // Clean up any existing queues
   deleteAutoQueue(TEST_SESSION_ID);
   deleteToolQueue(TEST_SESSION_ID);
 });
 
 afterEach(() => {
+  restoreEnv();
   deleteAutoQueue(TEST_SESSION_ID);
   deleteToolQueue(TEST_SESSION_ID);
 });

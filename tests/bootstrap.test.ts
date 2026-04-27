@@ -7,13 +7,22 @@
  * sets those variables before importing/exercising the extension.
  */
 
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 // Import the real config module BEFORE mocking to preserve exports
 import * as realConfig from "../src/config";
 
-import { createMockContext, createMockPi, testConfig } from "./fixtures";
+import {
+  createMockContext,
+  createMockPi,
+  HINDSIGHT_ENV_KEYS,
+  saveEnvKeys,
+  testConfig,
+} from "./fixtures";
 
 // ============================================
 // Mutable state for mock.module() — tests set these before exercising handlers
@@ -76,6 +85,12 @@ mock.module("../src/client", () => ({
 
 const BOOTSTRAP_SESSION = "test-bootstrap-session";
 
+let restoreEnv: () => void;
+
+beforeEach(() => {
+  restoreEnv = saveEnvKeys(HINDSIGHT_ENV_KEYS);
+});
+
 afterEach(() => {
   const { deleteAutoQueue, deleteToolQueue } =
     require("../src/queue") as typeof import("../src/queue");
@@ -98,6 +113,8 @@ afterEach(() => {
     recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
     reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
   });
+
+  restoreEnv();
 });
 
 describe("real entrypoint bootstrap", () => {
@@ -1734,5 +1751,197 @@ describe("real entrypoint bootstrap", () => {
     const messages = contextResult?.messages as Array<{ customType?: string }>;
     const recallMsgs = messages.filter((m) => m.customType === "hindsight-recall");
     expect(recallMsgs).toHaveLength(0);
+  });
+
+  // ============================================
+  // autoRecallTags placeholder expansion integration tests
+  // ============================================
+
+  it("before_agent_start expands {project} in autoRecallTags and passes to client.recall", async () => {
+    activeConfig = {
+      ...testConfig,
+      autoRecallPersist: false,
+      autoRecallTags: ["{project}"],
+      autoRecallTagsMatch: "any_strict",
+    };
+
+    let receivedTags: string[] | undefined;
+    let receivedTagsMatch: string | undefined;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock((opts: { tags?: string[]; tagsMatch?: string }) => {
+        receivedTags = opts.tags;
+        receivedTagsMatch = opts.tagsMatch;
+        return Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "Memory" }] },
+        });
+      }),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const handler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getHeader: mock(() => ({
+          id: "test-session-123",
+          timestamp: "2026-01-01T00:00:00Z",
+          cwd: "/home/user/myapp",
+          parentSession: undefined,
+        })),
+      },
+    });
+
+    await handler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+    // {project} should expand to project:myapp (basename of /home/user/myapp)
+    expect(receivedTags).toEqual(["project:myapp"]);
+    expect(receivedTagsMatch).toBe("any_strict");
+  });
+
+  it("before_agent_start expands {cwd} in autoRecallTags with session header cwd", async () => {
+    activeConfig = {
+      ...testConfig,
+      autoRecallPersist: false,
+      autoRecallTags: ["{cwd}"],
+      autoRecallTagsMatch: "any_strict",
+    };
+
+    let receivedTags: string[] | undefined;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock((opts: { tags?: string[] }) => {
+        receivedTags = opts.tags;
+        return Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "Memory" }] },
+        });
+      }),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const handler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getHeader: mock(() => ({
+          id: "test-session-123",
+          timestamp: "2026-01-01T00:00:00Z",
+          cwd: "/home/user/myapp",
+          parentSession: undefined,
+        })),
+      },
+    });
+
+    await handler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+    expect(receivedTags).toEqual(["cwd:/home/user/myapp"]);
+  });
+
+  it("before_agent_start expands {parent} in autoRecallTags with parent session id", async () => {
+    activeConfig = {
+      ...testConfig,
+      autoRecallPersist: false,
+      autoRecallTags: ["{parent}"],
+      autoRecallTagsMatch: "any",
+    };
+
+    // Create a temp parent session file that extractParentSessionId can read
+    const parentDir = join(tmpdir(), "pi-hindsight-parent-test");
+    mkdirSync(parentDir, { recursive: true });
+    const parentId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const parentPath = join(parentDir, `${parentId}.jsonl`);
+    writeFileSync(parentPath, `${JSON.stringify({ type: "session", id: parentId })}\n`);
+
+    try {
+      let receivedTags: string[] | undefined;
+      activeClientFactory = () => ({
+        healthCheck: mock(() => Promise.resolve({ success: true })),
+        retain: mock(() => Promise.resolve({ success: true })),
+        retainBatch: mock(() => Promise.resolve({ success: true })),
+        recall: mock((opts: { tags?: string[] }) => {
+          receivedTags = opts.tags;
+          return Promise.resolve({
+            success: true,
+            response: { results: [{ id: "1", text: "Memory" }] },
+          });
+        }),
+        reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+      });
+
+      const pi = createMockPi();
+      const extension = await import("../src/index");
+      extension.default(pi);
+
+      const handler = pi.handlers.get("before_agent_start")!;
+      const ctx = createMockContext({
+        sessionManager: {
+          ...createMockContext().sessionManager,
+          getHeader: mock(() => ({
+            id: "test-session-123",
+            timestamp: "2026-01-01T00:00:00Z",
+            cwd: "/home/user/myapp",
+            parentSession: parentPath,
+          })),
+        },
+      });
+
+      await handler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+      expect(receivedTags).toEqual([`parent:${parentId}`]);
+    } finally {
+      rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("before_agent_start does not pass tags/tagsMatch when autoRecallTags is null", async () => {
+    activeConfig = {
+      ...testConfig,
+      autoRecallPersist: false,
+      autoRecallTags: null,
+      autoRecallTagsMatch: "all_strict",
+    };
+
+    let receivedTags: string[] | undefined;
+    let receivedTagsMatch: string | undefined;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock((opts: { tags?: string[]; tagsMatch?: string }) => {
+        receivedTags = opts.tags;
+        receivedTagsMatch = opts.tagsMatch;
+        return Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "Memory" }] },
+        });
+      }),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const handler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext();
+
+    await handler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+    expect(receivedTags).toBeUndefined();
+    expect(receivedTagsMatch).toBeUndefined();
   });
 });
