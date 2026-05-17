@@ -26,7 +26,7 @@ const TEST_SESSION_ID = `test-session-${Date.now()}`;
 
 // Redirect agent-dir filesystem operations to a temp directory instead of
 // the real user's ~/.pi/agent/ directory. PI_CODING_AGENT_DIR is read by
-// getAgentDir() in @mariozechner/pi-coding-agent.
+// getAgentDir() in @earendil-works/pi-coding-agent.
 setupTempAgentDir("queue");
 
 afterEach(() => {

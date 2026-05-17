@@ -2,7 +2,7 @@
  * Session metadata subcommands (retention toggling, tags).
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
 import type { HindsightConfig } from "../config";
 import { getHindsightMeta, type HindsightMeta, shouldSessionBeRetained } from "../meta";

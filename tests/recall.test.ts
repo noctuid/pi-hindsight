@@ -7,7 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { registerCommands } from "../src/commands";
 import type { HindsightConfig } from "../src/config";
@@ -405,7 +405,7 @@ describe("hindsight-popup command", () => {
         registerCommand: mock((name: string, opts: unknown) => {
           registeredCommands.set(name, opts);
         }),
-      } as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI,
+      } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI,
       config,
       null, // client not needed for popup
       () => recallDetails,
