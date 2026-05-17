@@ -4,7 +4,7 @@
  */
 
 import { afterEach, describe, expect, it, mock } from "bun:test";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RecallResponse, ReflectResponse } from "@vectorize-io/hindsight-client";
 import type { HindsightClientWrapper } from "../src/client";
 import type { HindsightConfig } from "../src/config";

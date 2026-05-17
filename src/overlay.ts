@@ -2,8 +2,13 @@
  * Overlay component for displaying recall details.
  */
 
-import type { ThemeColor } from "@mariozechner/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+import {
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import type { RecallMessageDetails } from "./index";
 
 /**

@@ -2,7 +2,7 @@
  * Recall display subcommands (toggle display, popup overlay).
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightConfig } from "../config";
 import type { RecallMessageDetails } from "../index";
 import { RecallOverlayComponent } from "../overlay";

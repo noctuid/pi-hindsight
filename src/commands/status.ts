@@ -2,7 +2,7 @@
  * Status and config subcommands.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
 import type { HindsightConfig } from "../config";
 import type { RecallMessageDetails } from "../index";

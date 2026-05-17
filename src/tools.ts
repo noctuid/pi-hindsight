@@ -2,8 +2,8 @@
  * Manual tools for Hindsight memory operations.
  */
 
-import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { Budget, RecallResponse, ReflectResponse } from "@vectorize-io/hindsight-client";
 import { type Static, Type } from "typebox";
 import type { HindsightClientWrapper } from "./client";

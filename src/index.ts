@@ -5,8 +5,8 @@
  * turn-based queue with Hindsight's append mode.
  */
 
-import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { Box, type Component, Text } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Box, type Component, Text } from "@earendil-works/pi-tui";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { HindsightClientWrapper } from "./client";
 import { registerCommands } from "./commands";

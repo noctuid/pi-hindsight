@@ -2,7 +2,7 @@
  * Shared types for slash commands.
  */
 
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 /** A subcommand handler with description, handler, and optional argument completion. */
 export interface Subcommand {

@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../src/client";
 import { registerCommands } from "../src/commands";
 import type { RecallMessageDetails } from "../src/index";
@@ -81,7 +81,7 @@ describe("registerCommands", () => {
 
   function register(config = statusTestConfig, client = mockClient) {
     registerCommands(
-      mockPi as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI,
+      mockPi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI,
       config,
       client,
       () => recallDetails,
@@ -100,7 +100,7 @@ describe("registerCommands", () => {
     validationWarnings: string[];
   }) {
     registerCommands(
-      mockPi as unknown as import("@mariozechner/pi-coding-agent").ExtensionAPI,
+      mockPi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI,
       statusTestConfig,
       mockClient,
       () => recallDetails,
@@ -888,7 +888,7 @@ describe("registerCommands", () => {
     });
 
     it("asks for confirmation before upserting", async () => {
-      const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
+      const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
       const testFile = join(parsedDir, "test-upsert-confirm.json");
 
@@ -941,7 +941,7 @@ describe("registerCommands", () => {
     });
 
     it("cancels upsert when user declines confirmation", async () => {
-      const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
+      const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
       const testFile = join(parsedDir, "test-upsert-cancel.json");
 
@@ -985,7 +985,7 @@ describe("registerCommands", () => {
     });
 
     it("proceeds with upsert when user accepts confirmation", async () => {
-      const { getAgentDir } = await import("@mariozechner/pi-coding-agent");
+      const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
       const parsedDir = join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
       const testFile = join(parsedDir, "test-upsert-proceed.json");
 
