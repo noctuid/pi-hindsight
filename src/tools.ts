@@ -3,6 +3,7 @@
  */
 
 import type { AgentToolResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import type { Budget, RecallResponse, ReflectResponse } from "@vectorize-io/hindsight-client";
 import { type Static, Type } from "typebox";
 import type { HindsightClientWrapper } from "./client";
@@ -100,6 +101,21 @@ export function registerTools(
           })
         ),
       }),
+
+      renderResult(result, _options, theme, context) {
+        const text = (context.lastComponent as Text) ?? new Text("", 0, 0);
+        const details = result.details as RetainDetails;
+        if (details.success) {
+          const retained = context.args.content ?? "";
+          const preview = retained.length > 200 ? `${retained.slice(0, 200)}...` : retained;
+          text.setText(
+            `${theme.fg("success", "✓ Memory queued for storage")}\n${theme.fg("dim", preview)}`
+          );
+        } else {
+          text.setText(theme.fg("error", `✗ ${details.error ?? "Failed to store memory"}`));
+        }
+        return text;
+      },
 
       async execute(
         _toolCallId,
