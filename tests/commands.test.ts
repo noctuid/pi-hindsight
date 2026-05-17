@@ -517,7 +517,7 @@ describe("registerCommands", () => {
         expect(readAutoQueue(sessionId)).toHaveLength(1);
 
         register();
-        await getHandler()("toggle-retain", makeCtx());
+        await getHandler()("toggle-retain", makeCtx(sessionId));
 
         expect(readAutoQueue(sessionId)).toHaveLength(0);
         expect(lastNotification?.message).toContain("disabled");
@@ -550,6 +550,47 @@ describe("registerCommands", () => {
       await getHandler()("toggle-retain", makeCtx());
       expect(appendedEntries).toHaveLength(0);
       expect(lastNotification?.message).toContain("Retention not enabled");
+    });
+
+    it("toggles retention off with confirm=no, does not disable or delete queues", async () => {
+      const sessionId = "test-session-confirm-no";
+      const {
+        enqueueAutoMessage,
+        enqueueToolMessage,
+        readAutoQueue,
+        readToolQueue,
+        deleteAutoQueue,
+        deleteToolQueue,
+      } = await import("../src/queue");
+      try {
+        enqueueAutoMessage(sessionId, {
+          entry: { message: { role: "user", content: "Hello" } },
+          store_method: "auto",
+        });
+        enqueueToolMessage(sessionId, {
+          content: "Tool memory",
+          tags: ["test"],
+          store_method: "tool",
+          timestamp: new Date().toISOString(),
+        });
+        expect(readAutoQueue(sessionId)).toHaveLength(1);
+        expect(readToolQueue(sessionId)).toHaveLength(1);
+
+        sessionEntries = [
+          { type: "custom", customType: "hindsight-meta", data: { retained: true } },
+        ];
+        confirmResult = false;
+        register();
+        await getHandler()("toggle-retain", makeCtx(sessionId));
+
+        expect(appendedEntries).toHaveLength(0);
+        expect(lastNotification?.message).toContain("Retention not disabled");
+        expect(readAutoQueue(sessionId)).toHaveLength(1);
+        expect(readToolQueue(sessionId)).toHaveLength(1);
+      } finally {
+        deleteAutoQueue(sessionId);
+        deleteToolQueue(sessionId);
+      }
     });
 
     it("preserves existing tags when toggling off", async () => {
