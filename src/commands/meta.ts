@@ -88,7 +88,21 @@ export function createToggleRetainSubcommand(
           updateRetainToolVisibility(pi, true);
         }
       } else {
-        // Toggling OFF: build new meta, preserving existing tags
+        // Toggling OFF: confirm since queued messages will be deleted
+        const answer = await ctx.ui.confirm(
+          "Disable retention?",
+          "Queued messages will be deleted and will not be flushed."
+        );
+
+        if (!answer) {
+          ctx.ui.notify(
+            "Retention not disabled. Use /hindsight toggle-retain again to disable.",
+            "info"
+          );
+          return;
+        }
+
+        // Build new meta, preserving existing tags
         const existingMeta = getHindsightMeta(entries);
         const meta: HindsightMeta = {
           retained: false,
@@ -102,7 +116,7 @@ export function createToggleRetainSubcommand(
           deleteToolQueue(sessionId);
         }
 
-        ctx.ui.notify("Session retention: disabled (will be ignored)", "info");
+        ctx.ui.notify("Session retention: disabled (queued messages deleted)", "info");
 
         // Hide hindsight_retain tool now that session is not retained
         if (isToolEnabled(config, "retain")) {
