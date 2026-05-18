@@ -1,7 +1,7 @@
 # About
-A pi extension that integrates Hindsight AI memory for long-term conversation memory.
+A pi extension for [Hindsight](https://hindsight.vectorize.io/) AI memory.
 
-Status: This is currently alpha level software. I recommend waiting until I publish to npm if you want something more stable.
+Status: I would call this beta level software, though I am focusing on stability and am unlikely to make breaking changes at this point. Please report any issues. I am using this daily without problems.
 
 # Table of Contents
 - [Key Features](#key-features)
@@ -40,11 +40,11 @@ Status: This is currently alpha level software. I recommend waiting until I publ
 # Key Features
 Both ambient retain/recall and manual retain/recall tools are enabled by default. Either can be disabled. See [Comparison with Other Implementations](#comparison-with-other-implementations) and [Design Decisions](#design-decisions) for more information on what differentiates this plugin.
 
-## Retain
+## Retain Memories
 - Queues messages to disk and automatically retains on session switch, shutdown, etc.
 - Also supports ingesting past sessions - any session that has ever existed can be synced to Hindsight, not just sessions that had the extension loaded
 
-## Auto-Recall
+## Auto-Recall Memories
 When enabled, relevant memories are automatically recalled before each LLM call:
 
 1. Extracts the last user message as a query
@@ -56,6 +56,16 @@ There are two modes:
 2. Store memories in session file - allows displaying collapsable blocks with all past recall
 
 The second mode is recommended if you want to be able to view all past recalls, but the first is enabled by default. Note that the second mode puts messages with the customType `hindsight-recall` into the session file. If you stop using this plugin or hindsight, you should continue to filter out these messages using this plugin, your own `pi.on("context")` handler, or remove these entries from your old session files.
+
+## Reflect
+Unlike recall which returns raw matching memories, reflect uses the bank's reflect mission, disposition, and multi-step reasoning to produce a synthesized answer. Best for questions requiring synthesis of multiple memories or deeper analysis.
+
+Example reflect queries:
+- "What are the user's development preferences?"
+- "What architectural decisions have been made for this project?"
+- "Summarize what went wrong with the last deployment"
+
+You can set up [mental models](https://hindsight.vectorize.io/developer/api/mental-models) — cached reflect queries that can optionally automatically update when new observations come in — for common reflect queries. You can also use a pi prompt file to seed useful reflect queries at any point during a session.
 
 # Philosophy
 Follow [hindsight best practices](https://hindsight.vectorize.io/best-practices):
@@ -74,6 +84,8 @@ Additionally:
 - Allows choosing what content to retain and stripping unnecessary fields to reduce tokens/cost
 
 # Local Quickstart
+It is recommended to use the latest version of hindsight or >= `v0.6.2`.
+
 If you want want to run hindsight on your own server or using [hindsight cloud](https://ui.hindsight.vectorize.io/signup), ignore the hindsight-embed commands.
 
 Create a profile:
@@ -154,12 +166,34 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
   // for local hindsight without a key can set to anything
   "apiKey": "your-api-key",
   "bankId": "default",
+  // add a user tag so you can scope observations across all your sessions;
+  // replace <me> with your name/identifier
+  "constantTags": ["harness:pi", "user:<me>"],
+  // disable recall tool; auto-recall covers most use cases and reflect is more useful for
+  // manual queries requiring detailed synthesized information
+  "toolsEnabled": ["retain", "reflect"],
+  // remove thinking from assistant messages to reduce tokens/cost (default includes "thinking")
+  "retainContent": {
+    "assistant": ["text", "toolCall"],
+    "user": ["text"],
+    "toolResult": ["text"]
+  },
   // store recalls in session file and show collapsable blocks; see caveat below!
   "autoRecallPersist": true,
   "autoRecallDisplay": true,
   // if you want to reduce injected memory tokens (hindsight default: 4096, high: 8192)
   // see https://hindsight.vectorize.io/developer/retrieval#max-tokens-context-window-size
-  "maxRecallTokens": 2048
+  "maxRecallTokens": 2048,
+  // required; see observationScopes section for details
+  "observationScopes": [
+    ["user:<me>"],  // global observations across all your sessions
+    ["{project}"]    // project-specific observations
+  ],
+  // scope auto-recall to global observations by default;
+  // switch to ["{project}"] if you want project-scoped recall instead
+  "autoRecallTags": ["user:<me>"],
+  // don't include untagged memories
+  "autoRecallTagsMatch": "any_strict"
 }
 ```
 
@@ -440,7 +474,7 @@ Placeholders must be used as standalone tags — e.g. `["{session}"]` not `["{se
 **Choosing your scopes:**
 - **Per-session observations** (`["{session}"]`) — facts within a single session only — this is rarely useful unless you frequently resume the same session over and over. In practice, you'll get more value from:
 - **Per-user** (`["user:<me>"]`) — facts that span all your sessions/documents and memories storied manually with `hindsight_retain` tool, even across different harnesses. Add `"user:<me>"` to `constantTags` and use it as a scope. This is the most broadly useful scope.
-- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the cwd basename but can be overridden with `PI_HINDSIGHT_PROJECT_NAME`. This is ideal when a project might change directories or have multiple working copies — observations stay linked to the project identity rather than a specific path. See the [project scope example](#project-scope-for-relocatable-projects) below.
+- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the cwd basename but can be overridden with `PI_HINDSIGHT_PROJECT_NAME`. This is ideal when a project might change directories or have multiple separate worktrees — observations stay linked to the project identity rather than a specific path. See the [project scope example](#project-scope-for-relocatable-projects) below.
 - **Per-directory** (`["{cwd}"]`) — facts about a specific project/codebase, consolidated across all sessions in that directory
 - **Per-basedir** (`["{basedir}"]`) — facts scoped by directory name (basename). Less precise than `{cwd}` but works across different parent paths with the same directory name
 - **Per-harness** (`["harness:pi"]`) — facts that span all pi sessions (included as a default constant tag)
@@ -461,11 +495,13 @@ This creates two consolidation passes:
 1. One for facts that span all your sessions (even across different harnesses, assuming you've also tagged those documents with `user:<me>`)
 2. One for facts specific to the current project (identified by `PI_HINDSIGHT_PROJECT_NAME` or the cwd basename)
 
+> **Note on duplicate observations:** When you have multiple scopes in `observationScopes`, the same underlying memories may produce duplicate observations — one per scope. For example, a project-scoped observation and a global (per-user) observation may contain overlapping information. To avoid recalling duplicates, you should filter auto-recalled observations to the scope you currently want (e.g., use `autoRecallTags: ["{project}"]` for project-specific recall or `autoRecallTags: ["user:<me>"]` for global recall). Alternatively, if you will never need to switch between scopes, you can limit `observationScopes` to just one entry.
+
 ### Project scope for relocatable projects
 
 Use `{project}` when you want observations tied to a project identity rather than a specific directory path. By default `{project}` expands to the cwd basename, so observations automatically follow the project across directory moves (e.g., `~/projects/myapp` → `~/work/myapp` — the `cwd` tag changes but the `project` tag stays the same).
 
-You only need to set `PI_HINDSIGHT_PROJECT_NAME` when you have multiple directories with the same basename that should have separate observations (e.g., `~/work/myapp` vs `~/personal/myapp`) — give each a unique project name:
+You only need to set `PI_HINDSIGHT_PROJECT_NAME` when you have multiple directories with the same basename that should have separate observations (e.g. `~/work/myapp` vs. `~/personal/myapp`) or if you are using separate worktree folders and want the project name to be the same for both.
 
 Set `PI_HINDSIGHT_PROJECT_NAME` per directory in, e.g. `.env` with [direnv](https://direnv.net/) or [mise](https://mise.jdx.dev/):
 
@@ -484,8 +520,8 @@ PI_HINDSIGHT_PROJECT_NAME=myapp
 }
 ```
 
-**When to use `{project}` vs `{cwd}` vs `{basedir}`:**
-- `{project}` (recommended) — Observations scoped by project name (cwd basename by default). Automatically follows directory moves. Set `PI_HINDSIGHT_PROJECT_NAME` only to disambiguate directories with the same basename.
+**When to use `{project}` vs. `{cwd}` vs. `{basedir}`:**
+- `{project}` (recommended) — Observations scoped by project name (cwd basename by default). Automatically follows directory moves. Set `PI_HINDSIGHT_PROJECT_NAME` to disambiguate directories with the same basename or to give separate worktree directories the same project name.
 - `{cwd}` — Use when you want observations tied to an exact directory path. Different directories with the same basename produce separate observations.
 - `{basedir}` — Use when you want observations grouped by directory name regardless of parent path. All directories named `myapp` share observations.
 
@@ -626,7 +662,7 @@ Configuration options can also be set via environment variables (override config
 | `PI_HINDSIGHT_STATUS_UNHEALTHY` | `statusUnhealthy` | string | `"🤯"` |
 </details>
 
-> **Note:** `PI_HINDSIGHT_PROJECT_NAME` is a special environment variable that controls the `project:` auto-tag and `{project}` observation scope placeholder. Unlike other env vars, it does not correspond to a config file key — it is read at tag-build time and falls back to the cwd basename if not set. This makes it ideal for setting per-directory in `.env` (with direnv or mise) to disambiguate directories that share the same basename.
+> **Note:** `PI_HINDSIGHT_PROJECT_NAME` is a special environment variable that controls the `project:` auto-tag and `{project}` observation scope placeholder. Unlike other env vars, it does not correspond to a config file key — it is read at tag-build time and falls back to the cwd basename if not set. This makes it ideal for setting per-directory in `.env` (with direnv or mise) to disambiguate directories that share the same basename or to give separate worktree directories the same project name so they share observations.
 
 # Deviations from Official Integrations
 
@@ -671,8 +707,11 @@ There are multiple other Hindsight integrations for Pi:
 1. **[anh-chu/pi-hindsight](https://github.com/anh-chu/pi-hindsight)** — Simple auto-retain/recall
 2. **[pi-less-shitty/packages/hindsight](https://github.com/pi-less-shitty/pi-less-shitty)** — Domain-aware with multi-bank support
 3. **[@walodayeet/hindsight-pi](https://github.com/walodayeet/pi-hindsight)** — Feature-rich with multi-bank, linked hosts, reflective recall
+4. **[@luxusai/pi-hindsight](https://github.com/luxus/pi-hindsight)**
 
 ## Feature Comparison
+
+Note: I do not plan on spending time keeping this updated or adding comparisons with new plugins. I recommend you look at the documentation for the other plugins and decide for yourself. For a brief comparison with `@luxusai/pi-hindsight`: I made [improvement suggestions](https://github.com/luxus/pi-hindsight/commit/3deb058ecfa8d1f49e217de8102300ee25f2a526) to the author that I believe have been implemented where the author agreed they made sense. I think the main remaining design difference worth pointing out is the luxus extension is oriented towards a combination of per-project banks and a global bank that I do not agree with. See [Design Decisions](#design-decisions) for more information.
 
 | Feature | This Plugin | anh-chu | pi-less-shitty | hindsight-pi |
 |---------|:-----------:|:-------:|:--------------:|:------------:|
@@ -761,18 +800,20 @@ There are multiple other Hindsight integrations for Pi:
 
 ## Design Decisions
 - **First class support for old sessions** I want to be able to reingest old sessions later on after adjustments to my retain/observations missions or pi-hindsight stripping configuration.
-- **Use a disk queue in case hindsight is down or to delay retention**
+- **Use a disk queue in case hindsight is down and to delay retention** There is intentionally no "retain every N turns" functionality currently. You generally will not need memories available for an in-progress session. You can flush on compact or manually flush in cases where you do.
 - **Use as much automatic tagging as possible**
-- **Official TypeScript client library over raw HTTP requests** Using `@vectorize-io/hindsight-client` ensures correct API usage, type safety, and automatic compatibility with Hindsight API changes.
+- **Use the official TypeScript client library over raw HTTP requests** Using `@vectorize-io/hindsight-client` ensures correct API usage, type safety, and automatic compatibility with Hindsight API changes.
+- **Keep tools simple and descriptions brief** Offer only the useful arguments and prevent token bloat. For example, advanced `tag_groups` support is provided for user-set auto-recall filtering but not tool recall. Make an issue if you have a use case for this (I personally disable the recall tool entirely and only use auto-recall and reflect).
 - **No hashtag extraction or `#nomem` opt-out.** These features require parsing user prompts for control tags, which has edge cases with markdown headings. `#nomem` also does not make sense to me for a turn, since any information in that turn could still be referenced in later turns and retained then, and this would complicate reingesting full sessions later. It makes more sense to disable retention on a per-session basis (via `/hindsight toggle-retain`). Same for tags: it makes more sense to have a dedicated command (`/hindsight tag`) for manually adding tags to the document for the current session.
 - **No hard truncation or client-side text chunking.** Hindsight chunks content internally and handles large documents gracefully. Arbitrary truncation risks losing useful information. Client-side chunking (as done by hindsight-pi) is unnecessary since Hindsight already handles this.
-- **No support for bank creation/management or functionality that hindsight already provides** This is only for pi integration. Do bank creation and setup directly with e.g. `hindsight-embed` and hindsight's UI
+- **No support for bank creation/management or functionality that hindsight already provides** This is only for pi integration. Do bank creation and setup directly with e.g. `hindsight-embed` and hindsight's UI. This extension does not provide a document deletion capability. Do that yourself in the UI or with the cli if needed.
 - **No project-local configuration files** Use environment variables with mise/direnv for directory-specific config (more flexible and less complex implementation). Note that anh-chu and pi-less-shitty do support `.hindsight/config` in CWD / parent traversal.
 - **No bundling of the hindsight skills** I like to use as few skills and instructions as necessary and have not found these necessary. Automatic store/recall does almost all of the work, and I've  found the tool descriptions give enough information for the rest. If needed, the user should obtain the up-to-date skills files from the hindsight repo.
 - **No cached recall context.** Recall is fast and should be queried fresh each turn based on the current user prompt. Caching recall results (as done by hindsight-pi) is an anti-pattern: it serves stale or irrelevant results when the user's query changes between turns, defeats the purpose of query-dependent recall, and adds unnecessary complexity (TTL management, background refresh, pinning). Each turn should recall based on the actual current user message.
-- **No linked host recall (multiple servers).** This feature allows recalling from multiple Hindsight server instances simultaneously. I can't think of a use case for this — a single Hindsight instance with multiple banks already handles project separation, and the added latency and configuration complexity of cross-server recall doesn't seem justified.
+- **No linked host recall (multiple servers).** This feature allows recalling from multiple Hindsight server instances simultaneously. I can't think of a use case for this — a single Hindsight instance with tags or multiple banks already handles project separation, and the added latency and configuration complexity of cross-server recall doesn't seem justified.
 - **No auto-recall gating** I'm still debating this. Hindsight can produce useful memories even for short messages or even just "continue" (otherwise that turn will not have ephemeral injection), so I'm not sure it makes sense to avoid recall in these situations.
-- **No per-project banks by default.** Observation scopes and tag-based recall filtering provide project-specific memory without the complexity of separate banks. A single bank with proper tagging can scope both retention (via tags and `observationScopes`) and recall (via `autoRecallTags`) per-project while still supporting cross-project/global observations — something per-project banks cannot do. Per-project banks would require managing multiple bank connections, duplicating configuration, and would prevent recalling global context (like user preferences) alongside project-specific memories. The design is optimized around having one or only a couple banks (e.g., separate banks for different classes of work like writing vs programming, or for work vs hobby programming). See [Project-specific Recall and Storage](#project-specific-recall-and-storage) for the recommended single-bank approach.
+- **No per-project or per-agent banks by default.** This extension's design is optimized for having one or only a couple banks (e.g. separate banks for totally separate classes of work like writing vs. programming or for work vs. hobby programming). Hindsight does not recommend a per-agent bank approach: ["Having multiple banks goes against the spirit of sharing information between agents and should only really be used to total isolation of tasks."](https://github.com/vectorize-io/hindsight/discussions/1576#discussioncomment-16922281). Observation scopes and tag-based recall filtering provide project-specific or agent-specific memory without the complexity or additional overhead of separate banks. A single bank with proper tagging can scope both retention (via tags and `observationScopes`) and recall (via `autoRecallTags`) per-project or per-agent while still supporting cross-project/global observations — something separate banks cannot do. Separate banks would require managing multiple bank connections, duplicating configuration, and would prevent recalling global context (like user preferences) alongside project-specific memories. See [Project-specific Recall and Storage](#project-specific-recall-and-storage) for the recommended single-bank approach for separating memories for different projects.
+- **No interactive setup** I think hindsight already makes setup simple enough, and I think if any improvements do need to be made, they would better be part of the harness-agnostic hindsight cli.
 
 ## Features inspired by anh-chu/pi-hindsight
 - Storing recalls in the session file and showing them in collapseable blocks with custom message renderer, but optional and opt-in
@@ -809,22 +850,28 @@ All commands are under `/hindsight <subcommand>`. With no subcommand, defaults t
 > **Note:** After `/resume`, a new user message is required before `/hindsight popup` will show content, since recall only happens when there's a user message to query against.
 
 # Recommended User Best Practices
+## Initially
 - See the [model leaderboard](https://benchmarks.hindsight.vectorize.io/) for information on what models to use. I am currently using gemma 4 31b for retention/consolidation.
-- Think about your [retain mission](https://hindsight.vectorize.io/developer/api/memory-banks#retain-configuration), [observations mission](https://hindsight.vectorize.io/developer/api/memory-banks#observations_mission), and [entity labels](https://hindsight.vectorize.io/developer/api/memory-banks#entity-labels) up front, as if you change these later and want them to affect old sessions, you will need to reingest everything.
-- Remember that the recall prompt is constructed from the first part of your user message. For long prompts, consider putting any details or keywords you want memories for towards the beginning.
-- Consider whether you want to keep tool calls and results. Including tool calls might be useful for remembering details about writes/edits (especially if you use pi for writing prose). Including tool result might be useful, for example, if you want to store memories about reads. You can always keep both and put more details about what should be ignored in your retain mission.
+- Think about your [retain mission](https://hindsight.vectorize.io/developer/api/memory-banks#retain-configuration), [observations mission](https://hindsight.vectorize.io/developer/api/memory-banks#observations_mission), and [entity labels](https://hindsight.vectorize.io/developer/api/memory-banks#entity-labels) up front. While the hindsight defaults are good for general use cases, you may want to be more specific, and if you change these later and want them to affect old sessions, you will need to reingest everything.
+- Consider whether you want to ingest tool calls and results. Including tool calls might be useful for remembering details about writes/edits (especially if you use pi for writing prose). Including tool results might be useful, for example, if you want to store memories about reads. You can always keep both and put more details about what should be ignored in your retain mission.
+- Consider whether you want to ingest assistant thinking or just the final output
 
-For the retain mission, you may want to experiment with including something like this to avoid retaining duplicate information that may end up in the LLM thinking or final output after recall/reflect:
+Example - For the retain mission, you may want to experiment with including something like this to avoid retaining duplicate information that may end up in the LLM thinking or final output after recall/reflect:
 - "Ignore resurfaced information that has already been stored or meta-commentary about it (unless the commentary is a new realization, surprise, correction, or new connection; in that case retain only the new commentary)"
+
+## Later
+- Remember that the recall prompt is constructed from the first part of your user message. For long prompts, consider putting any details or keywords you want memories for towards the beginning.
+- Set up [mental models](https://hindsight.vectorize.io/developer/api/mental-models) for common reflect queries
+- Consider your [bank disposition](https://hindsight.vectorize.io/developer/reflect#disposition-shapes-reasoning) for reflect
 
 # Caveats
 - This plugin is still in flux and may have breaking changes
-- Depending on your workflow with `/tree` and what you expect to be retained, this package may not play well (all new messages and session file content will be retained). Also see rewind/rollback information below
+- Depending on your workflow with `/tree` and what you expect to be retained, this package may not play well (all new messages and session file content will be retained, not just the current tree branch). Also see rewind/rollback information below.
 - Currently the only flush options are manual or on session event
 
 # Known Package Interactions
-## tintinweb pi-subagents
-[pi-subagents](https://github.com/tintinweb/pi-subagents) does not affect the session file. This plugin is good to use for anything you *don't* want extracted except for the final output/summary (e.g. long web search dump).
+## subagents
+You should check how your subagent plugin interacts with sessions. If it writes to a separate session, and you do not want memories stored for subagents, you should disable pi-hindsight for subagents. A good subagent plugin should allow disabling or configuring extensions per-agent. I will add any extensions I can recommend here later.
 
 ## rewind/rollback
 Rollback with checkpoint extensions is untested. It may require code changes to include rollback information/messages. I think it makes sense to include the rollback information in memories (what happened? why was it necessary?), so I won't support actually removing messages from before the rollback in the final ingested document.
@@ -851,11 +898,11 @@ I also want to make 100% sure I have something following hindsight's best practi
 I may try out other memory providers in the future, and in that case, I will also be able to extract a lot the code here into a shared library for dealing with message stripping and parsing old session files.
 
 ## Was this vibe coded?
-The repo (excluding the documentation) was 100% written by AI but with manual review. The actual design/architecture is by me based on the documented hindsight best practices, github discussions with the hindsight author, and looking how multiple other memory systems are integrated in pi and other harnesses.
+Partially. The repo (excluding the documentation) was 100% written by AI but with manual review. The actual design/architecture is by me based on the documented hindsight best practices, github discussions with the hindsight author, and looking how multiple other memory systems are integrated in pi and other harnesses.
 
 I went through many rounds of manual review and bug fixes for the initial code along with manual testing, especially for the session parsing, queuing, retention, and injection parts. This included manually reviewing that my parsed session and queue files were stripped correctly (and the duplicated head removed for forks) and retained with the correct tags, context, etc. I have reingested all my session files into hindsight multiple times as I've experimented with different retain/observation missions.
 
-The commands to show the status, config, popup, and recall display in the UI (which I don't consider nearly as critical) were not thoroughly reviewed by me. I reviewed the initial config parsing code but have only briefly looked over the changes to it.
+The commands to show the status, config, popup, and recall display in the UI (which I don't consider nearly as critical) were not thoroughly reviewed by me. I reviewed the initial config parsing code but have only briefly looked over the changes to it. That code is very vibed.
 
 The automated tests have not been reviewed properly. I'm sure there are also bugs that I have not caught. Any feedback is welcome here, but one major advantage of this plugin is that **you can easily verify the queue and parsed session files are as expected yourself** before retention, and then you can verify that the documents and tags are as expected after retention. You can also verify for yourself that you are still getting cached reads.
 
