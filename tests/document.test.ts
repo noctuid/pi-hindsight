@@ -699,7 +699,7 @@ describe("hindsight context", () => {
     expect(context).toBe("pi: Build me a homepage");
   });
 
-  it("truncates long session name", () => {
+  it("does not truncate explicit session name", () => {
     const longName = "A".repeat(200);
     const path = createSessionFile(
       "context-long-name.jsonl",
@@ -714,8 +714,10 @@ describe("hindsight context", () => {
 
     const context = getHindsightContext(path, config, longName);
 
-    expect(context.length).toBe(50);
-    expect(context.endsWith("…")).toBe(true);
+    // Explicit session names are not truncated — hindsightContextMaxLength only applies
+    // to auto-derived names from the first user message
+    expect(context).toBe(`${config.hindsightContextPrefix}${longName}`);
+    expect(context.length).toBe(204); // "pi: " (4) + 200 A's
   });
 
   it("truncates long context from first message", () => {
@@ -741,7 +743,78 @@ describe("hindsight context", () => {
 
     const context = getHindsightContext(path, defaultConfig);
 
-    expect(context).toBe("pi: pi session");
+    expect(context).toBe("pi: Untitled");
+  });
+
+  it("appends extra context after session name with newline separator", () => {
+    const path = createSessionFile("context-extra.jsonl", { id: "context-extra-session" }, []);
+
+    const context = getHindsightContext(
+      path,
+      defaultConfig,
+      "My Session",
+      "This is fiction; characters are not the user"
+    );
+
+    expect(context).toBe("pi: My Session\nThis is fiction; characters are not the user");
+  });
+
+  it("appends extra context after first user message fallback", () => {
+    const path = createSessionFile(
+      "context-extra-fallback.jsonl",
+      { id: "context-extra-fallback-session" },
+      [userEntry("u1", null, "Hello world")]
+    );
+
+    const context = getHindsightContext(path, defaultConfig, undefined, "Fiction session");
+
+    expect(context).toBe("pi: Hello world\nFiction session");
+  });
+
+  it("truncates first user message fallback but not extra context", () => {
+    const longText = "A".repeat(200);
+    const path = createSessionFile(
+      "context-extra-truncate.jsonl",
+      { id: "context-extra-truncate-session" },
+      [userEntry("u1", null, longText)]
+    );
+
+    const config: HindsightConfig = {
+      ...defaultConfig,
+      hindsightContextMaxLength: 50,
+    };
+
+    const extraContext =
+      "This is a very long extra context that should not be truncated at all even though it exceeds the max length";
+    const context = getHindsightContext(path, config, undefined, extraContext);
+
+    // Base part is truncated, extra context is appended in full
+    expect(context).toContain(extraContext);
+    expect(context.startsWith("pi: ")).toBe(true);
+  });
+
+  it("returns base context unchanged when extra context is empty string", () => {
+    const path = createSessionFile(
+      "context-extra-empty.jsonl",
+      { id: "context-extra-empty-session" },
+      []
+    );
+
+    const context = getHindsightContext(path, defaultConfig, "My Session", "");
+
+    expect(context).toBe("pi: My Session");
+  });
+
+  it("returns base context unchanged when extra context is undefined", () => {
+    const path = createSessionFile(
+      "context-extra-undef.jsonl",
+      { id: "context-extra-undef-session" },
+      []
+    );
+
+    const context = getHindsightContext(path, defaultConfig, "My Session", undefined);
+
+    expect(context).toBe("pi: My Session");
   });
 });
 

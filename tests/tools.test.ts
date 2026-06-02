@@ -43,12 +43,15 @@ function createMockPi(): ExtensionAPI & {
   tools: ToolDef[];
   activeToolNames: string[] | null;
   setActiveToolsCalls: string[][];
+  appendedEntries: { customType: string; data?: unknown }[];
 } {
   const tools: ToolDef[] = [];
+  const appendedEntries: { customType: string; data?: unknown }[] = [];
   // Use a mutable object so the closure-based getActiveTools/setActiveTools share state
   const state = { activeToolNames: null as string[] | null, setActiveToolsCalls: [] as string[][] };
   return {
     tools,
+    appendedEntries,
     get activeToolNames() {
       return state.activeToolNames;
     },
@@ -57,6 +60,9 @@ function createMockPi(): ExtensionAPI & {
     },
     registerTool: mock((tool: ToolDef) => {
       tools.push(tool);
+    }),
+    appendEntry: mock((customType: string, data?: unknown) => {
+      appendedEntries.push({ customType, data });
     }),
     getActiveTools: mock(() => {
       if (state.activeToolNames === null) {
@@ -72,6 +78,7 @@ function createMockPi(): ExtensionAPI & {
     tools: ToolDef[];
     activeToolNames: string[] | null;
     setActiveToolsCalls: string[][];
+    appendedEntries: { customType: string; data?: unknown }[];
   };
 }
 
@@ -118,7 +125,7 @@ afterEach(() => {
 // network requests and properly forward AbortSignal to the client.
 
 describe("registerTools", () => {
-  it("does not register any tools when toolsEnabled is false", () => {
+  it("registers no tools when toolsEnabled is false", () => {
     const pi = createMockPi();
     const config = { ...testConfig, toolsEnabled: false as const };
     registerTools(pi, config, createMockClient());
@@ -152,10 +159,11 @@ describe("registerTools", () => {
     expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_retain")).toBe(true);
     expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_recall")).toBe(true);
     expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_reflect")).toBe(false);
-    expect(pi.tools).toHaveLength(2);
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_set_extra_context")).toBe(false);
+    expect(pi.tools).toHaveLength(2); // retain + recall
   });
 
-  it("registers only retain when toolsEnabled is ['retain', 'recall'] and client is null", () => {
+  it("registers only hindsight_retain when toolsEnabled is ['retain', 'recall'] and client is null", () => {
     const pi = createMockPi();
     const config = { ...testConfig, toolsEnabled: ["retain", "recall"] as ["retain", "recall"] };
     registerTools(pi, config, null);
@@ -171,7 +179,7 @@ describe("registerTools", () => {
     expect(pi.tools).toHaveLength(0);
   });
 
-  it("registers only recall when toolsEnabled is ['recall'] with client", () => {
+  it("registers only hindsight_recall when toolsEnabled is ['recall'] with client", () => {
     const pi = createMockPi();
     const config = { ...testConfig, toolsEnabled: ["recall"] as ["recall"] };
     registerTools(pi, config, createMockClient());
@@ -179,6 +187,27 @@ describe("registerTools", () => {
     expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_recall")).toBe(true);
     expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_reflect")).toBe(false);
     expect(pi.tools).toHaveLength(1);
+  });
+
+  it("registers hindsight_set_extra_context when toolsEnabled is true", () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_set_extra_context")).toBe(true);
+  });
+
+  it("registers hindsight_set_extra_context when 'set_extra_context' is in toolsEnabled array", () => {
+    const pi = createMockPi();
+    const config = { ...testConfig, toolsEnabled: ["set_extra_context"] as ["set_extra_context"] };
+    registerTools(pi, config, null);
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_set_extra_context")).toBe(true);
+    expect(pi.tools).toHaveLength(1);
+  });
+
+  it("does not register hindsight_set_extra_context when not in toolsEnabled array", () => {
+    const pi = createMockPi();
+    const config = { ...testConfig, toolsEnabled: ["retain"] as ["retain"] };
+    registerTools(pi, config, null);
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_set_extra_context")).toBe(false);
   });
 });
 
@@ -791,12 +820,16 @@ describe("isToolEnabled", () => {
     expect(isToolEnabled({ ...testConfig, toolsEnabled: true }, "retain")).toBe(true);
     expect(isToolEnabled({ ...testConfig, toolsEnabled: true }, "recall")).toBe(true);
     expect(isToolEnabled({ ...testConfig, toolsEnabled: true }, "reflect")).toBe(true);
+    expect(isToolEnabled({ ...testConfig, toolsEnabled: true }, "set_extra_context")).toBe(true);
+    expect(isToolEnabled({ ...testConfig, toolsEnabled: true }, "get_extra_context")).toBe(true);
   });
 
   it("returns false when toolsEnabled is false", () => {
     expect(isToolEnabled({ ...testConfig, toolsEnabled: false }, "retain")).toBe(false);
     expect(isToolEnabled({ ...testConfig, toolsEnabled: false }, "recall")).toBe(false);
     expect(isToolEnabled({ ...testConfig, toolsEnabled: false }, "reflect")).toBe(false);
+    expect(isToolEnabled({ ...testConfig, toolsEnabled: false }, "set_extra_context")).toBe(false);
+    expect(isToolEnabled({ ...testConfig, toolsEnabled: false }, "get_extra_context")).toBe(false);
   });
 
   it("returns true only for tools listed in the array", () => {
@@ -817,5 +850,183 @@ describe("isToolEnabled", () => {
     const config = { ...testConfig, toolsEnabled: ["recall"] as ["recall"] };
     expect(isToolEnabled(config, "retain")).toBe(false);
     expect(isToolEnabled(config, "reflect")).toBe(false);
+    expect(isToolEnabled(config, "set_extra_context")).toBe(false);
+  });
+
+  it("returns true for set_extra_context when in array", () => {
+    const config = { ...testConfig, toolsEnabled: ["set_extra_context"] as ["set_extra_context"] };
+    expect(isToolEnabled(config, "set_extra_context")).toBe(true);
+    expect(isToolEnabled(config, "retain")).toBe(false);
+  });
+});
+
+// ============================================
+// hindsight_set_extra_context tests
+// ============================================
+
+describe("hindsight_set_extra_context", () => {
+  it("is not registered when toolsEnabled is false", () => {
+    const pi = createMockPi();
+    const config = { ...testConfig, toolsEnabled: false as const };
+    registerTools(pi, config, createMockClient());
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_set_extra_context")).toBe(false);
+  });
+
+  it("sets extraContext in session metadata", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_set_extra_context");
+    const ctx = createMockContext();
+
+    const result = (await tool!.execute(
+      "tc1",
+      { text: "This session involves reading a fiction book" },
+      undefined,
+      undefined,
+      ctx
+    )) as { content: Array<{ type: string; text: string }>; details: { success: boolean } };
+
+    expect(result.details.success).toBe(true);
+    expect(result.content[0]?.text).toContain("Extra context set");
+
+    // Verify the metadata was appended
+    const lastEntry = pi.appendedEntries[pi.appendedEntries.length - 1];
+    expect(lastEntry?.customType).toBe("hindsight-meta");
+    expect((lastEntry?.data as Record<string, unknown>)?.extraContext).toBe(
+      "This session involves reading a fiction book"
+    );
+  });
+
+  it("stores empty extraContext when text is empty (satisfies flush guard)", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_set_extra_context");
+    const ctx = createMockContext();
+
+    const result = (await tool!.execute("tc1", { text: "" }, undefined, undefined, ctx)) as {
+      content: Array<{ type: string; text: string }>;
+      details: { success: boolean };
+    };
+
+    expect(result.details.success).toBe(true);
+    expect(result.content[0]?.text).toContain("No extra context needed");
+
+    // Verify the metadata was appended with extraContext: "" (empty string signals "no extra context needed",
+    // distinct from not having the key at all — this satisfies the flush guard)
+    const lastEntry = pi.appendedEntries[pi.appendedEntries.length - 1];
+    expect(lastEntry?.customType).toBe("hindsight-meta");
+    expect((lastEntry?.data as Record<string, unknown>)?.extraContext).toBe("");
+  });
+
+  it("preserves existing retained state and tags when setting extraContext", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_set_extra_context");
+    const ctx = createMockContext({
+      sessionManager: {
+        getSessionId: mock(() => TEST_SESSION_ID),
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { retained: true, tags: ["topic:ai"], extraContext: "old context" },
+          },
+        ]),
+        getHeader: mock(() => ({ id: TEST_SESSION_ID })),
+      },
+    });
+
+    await tool!.execute("tc1", { text: "new context" }, undefined, undefined, ctx);
+
+    const lastEntry = pi.appendedEntries[pi.appendedEntries.length - 1];
+    const data = lastEntry?.data as Record<string, unknown>;
+    expect(data.retained).toBe(true);
+    expect(data.tags).toEqual(["topic:ai"]);
+    expect(data.extraContext).toBe("new context");
+  });
+});
+
+// ============================================
+// hindsight_get_extra_context tests
+// ============================================
+
+describe("hindsight_get_extra_context", () => {
+  it("is not registered when toolsEnabled is false", () => {
+    const pi = createMockPi();
+    const config = { ...testConfig, toolsEnabled: false as const };
+    registerTools(pi, config, createMockClient());
+    expect(pi.tools.some((t: ToolDef) => t.name === "hindsight_get_extra_context")).toBe(false);
+  });
+
+  it("returns extra context when set", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_get_extra_context");
+    const ctx = createMockContext({
+      sessionManager: {
+        getSessionId: mock(() => TEST_SESSION_ID),
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { extraContext: "This is fiction" },
+          },
+        ]),
+        getHeader: mock(() => ({ id: TEST_SESSION_ID })),
+      },
+    });
+
+    const result = (await tool!.execute("tc1", {}, undefined, undefined, ctx)) as {
+      content: Array<{ type: string; text: string }>;
+      details: { success: boolean; extraContext?: string };
+    };
+
+    expect(result.details.success).toBe(true);
+    expect(result.details.extraContext).toBe("This is fiction");
+    expect(result.content[0]?.text).toContain("This is fiction");
+  });
+
+  it("returns no extra context set when not set", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_get_extra_context");
+    const ctx = createMockContext();
+
+    const result = (await tool!.execute("tc1", {}, undefined, undefined, ctx)) as {
+      content: Array<{ type: string; text: string }>;
+      details: { success: boolean; extraContext?: string };
+    };
+
+    expect(result.details.success).toBe(true);
+    expect(result.details.extraContext).toBeUndefined();
+    expect(result.content[0]?.text).toContain("No extra context set");
+  });
+
+  it("returns empty string context with flush guard message", async () => {
+    const pi = createMockPi();
+    registerTools(pi, testConfig, createMockClient());
+    const tool = pi.tools.find((t: ToolDef) => t.name === "hindsight_get_extra_context");
+    const ctx = createMockContext({
+      sessionManager: {
+        getSessionId: mock(() => TEST_SESSION_ID),
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { extraContext: "" },
+          },
+        ]),
+        getHeader: mock(() => ({ id: TEST_SESSION_ID })),
+      },
+    });
+
+    const result = (await tool!.execute("tc1", {}, undefined, undefined, ctx)) as {
+      content: Array<{ type: string; text: string }>;
+      details: { success: boolean; extraContext?: string };
+    };
+
+    expect(result.details.success).toBe(true);
+    expect(result.details.extraContext).toBe("");
+    expect(result.content[0]?.text).toContain("flush guard satisfied");
   });
 });

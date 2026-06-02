@@ -5,7 +5,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
 import type { HindsightConfig } from "../config";
-import { getHindsightMeta, type HindsightMeta, shouldSessionBeRetained } from "../meta";
+import {
+  buildMetaUpdate,
+  getHindsightMeta,
+  hasExtraContext,
+  shouldSessionBeRetained,
+} from "../meta";
 import { deleteAutoQueue, deleteToolQueue } from "../queue";
 import { isToolEnabled, updateRetainToolVisibility } from "../tools";
 import type { Subcommand } from "./types";
@@ -39,6 +44,16 @@ export function createToggleRetainSubcommand(
       const sessionId = ctx.sessionManager.getSessionId();
 
       if (newShouldRetain) {
+        // Block toggling on if flush guard is active and extra context isn't set.
+        // Without extra context, the subsequent parse-and-upsert would also be blocked.
+        if (config.requireExtraContextBeforeFlush && !hasExtraContext(getHindsightMeta(entries))) {
+          ctx.ui.notify(
+            "Cannot enable retention: extra context not set. Use /hindsight set-extra-context or the hindsight_set_extra_context tool first.",
+            "warning"
+          );
+          return;
+        }
+
         // Toggling ON: ask if user wants to parse-and-upsert first so the
         // full session content is retained (newly queued messages append correctly)
         const answer = await ctx.ui.confirm(
@@ -54,12 +69,8 @@ export function createToggleRetainSubcommand(
           return;
         }
 
-        // Build new meta, preserving existing tags
         const existingMeta = getHindsightMeta(entries);
-        const meta: HindsightMeta = {
-          retained: true,
-          ...(existingMeta?.tags ? { tags: existingMeta.tags } : {}),
-        };
+        const meta = buildMetaUpdate(existingMeta, { retained: true });
         pi.appendEntry("hindsight-meta", meta);
 
         // Delete any existing queue files
@@ -102,12 +113,8 @@ export function createToggleRetainSubcommand(
           return;
         }
 
-        // Build new meta, preserving existing tags
         const existingMeta = getHindsightMeta(entries);
-        const meta: HindsightMeta = {
-          retained: false,
-          ...(existingMeta?.tags ? { tags: existingMeta.tags } : {}),
-        };
+        const meta = buildMetaUpdate(existingMeta, { retained: false });
         pi.appendEntry("hindsight-meta", meta);
 
         // Delete queue files so queued messages will NOT be flushed
@@ -154,11 +161,7 @@ export function createTagSubcommand(pi: ExtensionAPI): Subcommand {
 
       tags.push(tag);
 
-      const meta: HindsightMeta = {
-        ...(existingMeta?.retained !== undefined ? { retained: existingMeta.retained } : {}),
-        tags,
-      };
-
+      const meta = buildMetaUpdate(existingMeta, { tags });
       pi.appendEntry("hindsight-meta", meta);
       ctx.ui.notify(`Tag "${tag}" added`, "info");
     },
@@ -193,13 +196,52 @@ export function createRemoveTagSubcommand(pi: ExtensionAPI): Subcommand {
 
       tags.splice(index, 1);
 
-      const meta: HindsightMeta = {
-        ...(existingMeta?.retained !== undefined ? { retained: existingMeta.retained } : {}),
-        ...(tags.length > 0 ? { tags } : {}),
-      };
-
+      const meta = buildMetaUpdate(existingMeta, { tags });
       pi.appendEntry("hindsight-meta", meta);
       ctx.ui.notify(`Tag "${tag}" removed`, "info");
+    },
+  };
+}
+
+/**
+ * Create the set-extra-context subcommand — set extra context for the Hindsight context field.
+ *
+ * Extra context is appended after the session name in the Hindsight context string,
+ * separated by a newline. It provides caveats/instructions for extraction to help
+ * Hindsight correctly classify content (e.g., "This session involves reading a fiction
+ * book; characters are not the user and information is not factual").
+ *
+ * The extra context is used in all places the Hindsight context field is used:
+ * - Fact extraction: included in the extraction prompt so the LLM knows the nature of the source
+ * - Full-text search: indexed in the tsvector for recall filtering
+ * - Consolidation: included in source fact data passed to the observation synthesis LLM
+ * - Recall results: returned as a field on each memory fact
+ * - Reflect agent: available as context for answer synthesis
+ *
+ * Pass an empty string ("") to indicate that no extra context is needed for this session.
+ * This is distinct from not having set extra context at all: when requireExtraContextBeforeFlush
+ * is enabled, an explicit empty string satisfies the flush guard (you've confirmed you don't
+ * need extra context), while never having set it blocks the flush.
+ * Replaces any previously set extra context.
+ */
+export function createExtraContextSubcommand(pi: ExtensionAPI): Subcommand {
+  return {
+    description: "Set extra context for extraction caveats (appended to Hindsight context field)",
+    handler: async (args: string, ctx: ExtensionContext) => {
+      const extraContext = args.trim();
+
+      const entries = ctx.sessionManager.getEntries();
+      const existingMeta = getHindsightMeta(entries);
+
+      // Always store extraContext (even empty string) so the flush guard
+      // can distinguish "explicitly set to empty" from "never set".
+      const meta = buildMetaUpdate(existingMeta, { extraContext });
+      pi.appendEntry("hindsight-meta", meta);
+      if (extraContext) {
+        ctx.ui.notify(`Extra context set`, "info");
+      } else {
+        ctx.ui.notify(`No extra context needed (flush guard satisfied)`, "info");
+      }
     },
   };
 }

@@ -8,8 +8,9 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
 import type { HindsightConfig } from "../config";
-import { flushQueues, getQueueCount } from "../retention";
-import { extractParentSessionId, getSessionDisplayName } from "../utils";
+import { getHindsightMeta, hasExtraContext } from "../meta";
+import { FLUSH_BLOCKED_NO_EXTRA_CONTEXT, flushQueues, getQueueCount } from "../retention";
+import { deriveSessionName, extractParentSessionId, getContextNameMaxLength } from "../utils";
 import type { Subcommand } from "./types";
 import { parseAndUpsertSession, parseCurrentSession, upsertToHindsight } from "./utils";
 
@@ -43,15 +44,26 @@ export function createFlushSubcommand(
         return;
       }
 
+      // Check flush guard: requireExtraContextBeforeFlush
+      if (config.requireExtraContextBeforeFlush) {
+        const entries = ctx.sessionManager.getEntries();
+        const meta = getHindsightMeta(entries);
+        if (!hasExtraContext(meta)) {
+          ctx.ui.notify(FLUSH_BLOCKED_NO_EXTRA_CONTEXT, "warning");
+          return;
+        }
+      }
+
       const header = ctx.sessionManager.getHeader();
-      const sessionName = getSessionDisplayName(
-        ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-        ctx.sessionManager.getEntries.bind(ctx.sessionManager)
-      );
-      const sessionStartTime = header?.timestamp || new Date().toISOString();
-      const sessionCwd = header?.cwd || ctx.cwd;
-      const parentSessionId = extractParentSessionId(header?.parentSession);
       const entries = ctx.sessionManager.getEntries();
+      const sessionName = deriveSessionName(
+        ctx.sessionManager.getSessionName(),
+        entries,
+        getContextNameMaxLength(config)
+      );
+      const sessionStartTime = header?.timestamp ?? new Date().toISOString();
+      const sessionCwd = header?.cwd ?? ctx.cwd;
+      const parentSessionId = extractParentSessionId(header?.parentSession);
 
       ctx.ui.notify(`Flushing ${count} messages...`, "info");
 

@@ -3,7 +3,12 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { getHindsightMeta, shouldSessionBeRetained } from "../src/meta";
+import {
+  buildMetaUpdate,
+  getHindsightMeta,
+  hasExtraContext,
+  shouldSessionBeRetained,
+} from "../src/meta";
 
 type MetaEntry = Parameters<typeof getHindsightMeta>[0][number];
 
@@ -49,6 +54,39 @@ describe("getHindsightMeta", () => {
     ];
     expect(getHindsightMeta(entries)).toEqual({ tags: ["topic:ai"] });
   });
+
+  it("returns meta with extraContext", () => {
+    const entries: MetaEntry[] = [
+      {
+        type: "custom",
+        customType: "hindsight-meta",
+        data: { retained: true, extraContext: "This is fiction" },
+      },
+    ];
+    expect(getHindsightMeta(entries)).toEqual({
+      retained: true,
+      extraContext: "This is fiction",
+    });
+  });
+
+  it("returns latest meta with extraContext", () => {
+    const entries: MetaEntry[] = [
+      {
+        type: "custom",
+        customType: "hindsight-meta",
+        data: { retained: true, extraContext: "old context" },
+      },
+      {
+        type: "custom",
+        customType: "hindsight-meta",
+        data: { retained: true, extraContext: "new context" },
+      },
+    ];
+    expect(getHindsightMeta(entries)).toEqual({
+      retained: true,
+      extraContext: "new context",
+    });
+  });
 });
 
 describe("shouldSessionBeRetained", () => {
@@ -87,5 +125,113 @@ describe("shouldSessionBeRetained", () => {
       { type: "custom", customType: "hindsight-meta", data: { retained: false } },
     ];
     expect(shouldSessionBeRetained(entries, { retainSessionsByDefault: true })).toBe(false);
+  });
+});
+
+describe("hasExtraContext", () => {
+  it("returns false for null meta", () => {
+    expect(hasExtraContext(null)).toBe(false);
+  });
+
+  it("returns false when key is absent", () => {
+    expect(hasExtraContext({ retained: true })).toBe(false);
+  });
+
+  it("returns false when only tags are set", () => {
+    expect(hasExtraContext({ retained: true, tags: ["test"] })).toBe(false);
+  });
+
+  it("returns true for non-empty string", () => {
+    expect(hasExtraContext({ extraContext: "Fiction session" })).toBe(true);
+  });
+
+  it("returns true for empty string (explicitly set to empty — satisfies flush guard)", () => {
+    expect(hasExtraContext({ extraContext: "" })).toBe(true);
+  });
+
+  it("returns true for empty string alongside other fields", () => {
+    expect(hasExtraContext({ retained: true, extraContext: "" })).toBe(true);
+  });
+});
+
+describe("buildMetaUpdate", () => {
+  it("sets retained from updates when no existing meta", () => {
+    expect(buildMetaUpdate(null, { retained: true })).toEqual({ retained: true });
+  });
+
+  it("sets retained: false from updates when no existing meta", () => {
+    expect(buildMetaUpdate(null, { retained: false })).toEqual({ retained: false });
+  });
+
+  it("preserves existing fields not overridden", () => {
+    expect(buildMetaUpdate({ retained: true, tags: ["x"] }, { extraContext: "foo" })).toEqual({
+      retained: true,
+      tags: ["x"],
+      extraContext: "foo",
+    });
+  });
+
+  it("drops tags when updates has empty array", () => {
+    expect(buildMetaUpdate({ retained: true, tags: ["x"] }, { tags: [] })).toEqual({
+      retained: true,
+    });
+  });
+
+  it("stores empty string extraContext (satisfies flush guard)", () => {
+    expect(buildMetaUpdate(null, { extraContext: "" })).toEqual({ extraContext: "" });
+  });
+
+  it("preserves existing retained and tags when setting extraContext", () => {
+    expect(
+      buildMetaUpdate({ retained: false, tags: ["a", "b"] }, { extraContext: "fiction" })
+    ).toEqual({ retained: false, tags: ["a", "b"], extraContext: "fiction" });
+  });
+
+  it("preserves existing extraContext when updating tags", () => {
+    expect(buildMetaUpdate({ retained: true, extraContext: "old" }, { tags: ["new"] })).toEqual({
+      retained: true,
+      extraContext: "old",
+      tags: ["new"],
+    });
+  });
+
+  it("returns empty object when no existing meta and no updates set", () => {
+    expect(buildMetaUpdate(null, {})).toEqual({});
+  });
+
+  it("overrides retained from existing with update", () => {
+    expect(buildMetaUpdate({ retained: true }, { retained: false })).toEqual({ retained: false });
+  });
+
+  it("overrides extraContext from existing with update", () => {
+    expect(buildMetaUpdate({ extraContext: "old" }, { extraContext: "new" })).toEqual({
+      extraContext: "new",
+    });
+  });
+
+  it("replaces tags from existing with update tags", () => {
+    expect(buildMetaUpdate({ tags: ["old"] }, { tags: ["a", "b"] })).toEqual({
+      tags: ["a", "b"],
+    });
+  });
+
+  it("carries forward existing retained when updates has no retained", () => {
+    expect(buildMetaUpdate({ retained: true }, { tags: ["x"] })).toEqual({
+      retained: true,
+      tags: ["x"],
+    });
+  });
+
+  it("carries forward existing extraContext when updates has no extraContext", () => {
+    expect(buildMetaUpdate({ extraContext: "fiction" }, { retained: false })).toEqual({
+      retained: false,
+      extraContext: "fiction",
+    });
+  });
+
+  it("drops tags when existing has tags but updates has empty array", () => {
+    expect(buildMetaUpdate({ retained: true, tags: ["x"] }, { tags: [], retained: true })).toEqual({
+      retained: true,
+    });
   });
 });

@@ -10,6 +10,8 @@ Detailed configuration, tools, commands, and operational details for pi-hindsigh
     - [autoRecallPersist Tradeoffs](#autorecallpersist-tradeoffs)
   - [Status Bar Indicator](#status-bar-indicator)
   - [Session Retention Control](#session-retention-control)
+  - [Extra Context & Flush Guard](#extra-context--flush-guard)
+    - [Flush Guard](#flush-guard)
   - [Content Retention & Stripping Settings](#content-retention--stripping-settings)
     - [retainContent](#retaincontent)
     - [strip](#strip)
@@ -35,17 +37,18 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Enable or disable the extension. When `false`, the extension runs in a lightweight disabled mode (see [Disabled Mode](#disabled-mode)). |
-| `toolsEnabled` | `true` | Which tools to register: `true` (all), `false` (none), or array of tool names (`"retain"`, `"recall"`, `"reflect"`) |
+| `toolsEnabled` | `true` | Which tools to register: `true` (all), `false` (none), or array of tool names (`"retain"`, `"recall"`, `"reflect"`, `"set_extra_context"`, `"get_extra_context"`) |
 | `autoRecallEnabled` | `true` | Automatically recall relevant memories before each LLM call |
 | `autoRetainEnabled` | `true` | Automatically queue messages for retention on `message_end` (see [Session Retention Control](#session-retention-control)) |
 | `autoRecallBudget` | `"mid"` | Recall retrieval budget. One of `"low"`, `"mid"`, `"high"`. Controls how many results Hindsight returns. |
 | `hindsightContextPrefix` | `"pi: "` | Prefix prepended to the session name or first message when building the `context` field for retained documents |
-| `hindsightContextMaxLength` | `100` | Maximum character length for the `context` field (after prefix). The context is truncated to this length. |
+| `hindsightContextMaxLength` | `100` | Maximum character length for the `context` field (including prefix) when the session name is auto-derived from the first user message. Manually set session names are preserved as-is and may exceed this length. |
 | `maxRecallTokens` | `null` | Maximum tokens for recalled content. When `null`, uses Hindsight's default (4096). See [max tokens context window size](https://hindsight.vectorize.io/developer/retrieval#max-tokens-context-window-size) for details. |
 | `recallMaxQueryChars` | `800` | Maximum characters from the user's message to use as the recall query |
 | `recallPromptPreamble` | *(see defaults)* | The system note text inside `<hindsight_memories>` fences that instructs the LLM how to use recalled memories |
 | `constantTags` | `["harness:pi"]` | Tags included on every retained document (useful for filtering in Hindsight) |
 | `flushOnCompact` | `false` | Flush queued messages to Hindsight after a compaction event |
+| `requireExtraContextBeforeFlush` | `false` | Block automatic flush until extra context is set via `/hindsight set-extra-context` or the `hindsight_set_extra_context` tool. Helps prevent incorrect extraction for sessions involving satire, fiction, external blog posts, or other content that could be misclassified. See [Extra Context & Flush Guard](#extra-context--flush-guard). |
 
 ### Disabled Mode
 When `enabled: false`, pi-hindsight runs in a lightweight disabled mode. No tools, commands, API client, auto-recall, auto-retain, or status indicator are registered. However, two things are still handled:
@@ -146,7 +149,40 @@ When toggling retention:
 
 Tags added via `/hindsight tag` are included in the document tags when flushing to Hindsight, alongside the automatic tags (session ID, cwd, parent, etc.).
 
-Session metadata (retention state and tags) is stored as a `CustomEntry` in the session file with `customType: "hindsight-meta"`, so it persists across session restarts but is not sent to the LLM.
+Session metadata (retention state, tags, and extra context) is stored as a `CustomEntry` in the session file with `customType: "hindsight-meta"`, so it persists across session restarts but is not sent to the LLM.
+
+## Extra Context & Flush Guard
+
+**Extra context** is an optional caveat string appended to the Hindsight `context` field (after the session name), separated by a newline. It helps Hindsight correctly classify content during extraction — for example, indicating that a session involves taking notes on fiction or any content not written by the user.
+
+Extra context is used in all places the Hindsight context field is used:
+- **Fact extraction**: Included in the extraction prompt so the LLM knows the nature of the source
+- **Full-text search**: Indexed in the tsvector for recall filtering
+- **Consolidation**: Included in source fact data passed to the observation synthesis LLM
+- **Recall results**: Returned as a field on each memory fact
+- **Reflect agent**: Available as context for answer synthesis
+
+There are two ways to set extra context:
+1. **Slash command**: `/hindsight set-extra-context This session involves reading Dune by Frank Herbert; characters are not the user`
+2. **Tool**: `hindsight_set_extra_context` — the LLM can set extra context directly (useful when the model recognizes the need or at the end of a session - ask model to summarize the overall session and provide necessary context to avoid out-of-context/incorrect memories)
+
+Call with no text (`/hindsight set-extra-context`) to indicate no extra context is needed (satisfies the flush guard).
+
+### Flush Guard
+
+When `requireExtraContextBeforeFlush: true`, automatic and manual flush operations are blocked until extra context is explicitly set. This prevents accidental retention of content that could be misclassified by Hindsight's extraction.
+
+The flush guard distinguishes between three states:
+
+| Extra Context | Flush Guard | Behavior |
+|---------------|-------------|----------|
+| Never set | **Blocked** | Flush is blocked — you must set extra context first |
+| Set to empty string (`""`) | **Satisfied** | Flush proceeds — you've confirmed no extra context is needed |
+| Set to non-empty string | **Satisfied** | Flush proceeds — extraction will use the provided caveats |
+
+This is particularly useful for sessions involving prose to prevent Hindsight from treating fictional characters as real people, fictional events as factual, or even real people as the user.
+
+The guard is checked at every flush point: session switch, shutdown, compact (if `flushOnCompact: true`), and manual `/hindsight flush`.
 
 ## Content Retention & Stripping Settings
 ### `retainContent`
@@ -490,6 +526,7 @@ Configuration options can also be set via environment variables (override config
 | `PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS` | `autoRecallTagGroups` | TagGroupInput[] (JSON) | `null` |
 | `PI_HINDSIGHT_CONSTANT_TAGS` | `constantTags` | string[] (JSON) | `["harness:pi"]` |
 | `PI_HINDSIGHT_FLUSH_ON_COMPACT` | `flushOnCompact` | boolean | `false` |
+| `PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH` | `requireExtraContextBeforeFlush` | boolean | `false` |
 | `PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT` | `retainSessionsByDefault` | boolean | `true` |
 | `PI_HINDSIGHT_RETAIN_CONTENT` | `retainContent` | RetainContent (JSON) | *(see retainContent default)* |
 | `PI_HINDSIGHT_STRIP` | `strip` | StripConfig (JSON) | *(see strip default)* |
@@ -534,13 +571,15 @@ The `recallPromptPreamble` config option (shown inside the fence above) defaults
 | Queue file corruption | Skip malformed lines on read (partial data loss) |
 
 # Tools
-When `toolsEnabled: true` (default), all three tools are available. Set to an array of tool names (`"retain"`, `"recall"`, `"reflect"`) to register only specific tools, or `false` to disable all tools.
+When `toolsEnabled: true` (default), all tools are available. Set to an array of tool names (`"retain"`, `"recall"`, `"reflect"`, `"set_extra_context"`, `"get_extra_context"`) to register only specific tools, or `false` to disable all tools.
 
 | Tool | Description |
 |------|-------------|
 | `hindsight_retain` | Store information to long-term memory. Queues to disk and retains on next flush. Use for facts, preferences, decisions, or any information worth remembering. |
 | `hindsight_recall` | Search long-term memory using multi-strategy retrieval. Supports filtering by tags, memory types (`world`/`experience`/`observation`), and budget. |
 | `hindsight_reflect` | Generate a synthesized answer from long-term memory. Unlike recall which returns raw facts, reflect uses the bank's identity, mental models, and multi-step reasoning to produce a contextual markdown answer. Best for questions requiring synthesis of multiple memories. |
+| `hindsight_set_extra_context` | Set extra context/caveats for Hindsight extraction. Appended to the context field (after session name) to help extraction correctly extract memories. See [Extra Context & Flush Guard](#extra-context--flush-guard). |
+| `hindsight_get_extra_context` | Get the current extra context set for this session. |
 
 # Slash Commands
 All commands are under `/hindsight <subcommand>`. With no subcommand, defaults to `status`.
@@ -551,10 +590,10 @@ All commands are under `/hindsight <subcommand>`. With no subcommand, defaults t
 | `toggle-retain` | Toggle whether the current session should be retained |
 | `tag <tag>` | Add a tag to the session's hindsight metadata |
 | `remove-tag <tag>` | Remove a tag from the session's hindsight metadata |
+| `set-extra-context <text>` | Set extra context for extraction caveats (appended to Hindsight context field). Call with no text to indicate no extra context is needed (satisfies the flush guard). |
 | `toggle-display` | Toggle recall message visibility in UI |
 | `popup` | Pop up last recalled messages in overlay |
-| `queue-status` | Show count of queued messages |
-| `status` | Show operational status (connection, session, recall info) |
+| `status` | Show operational status (connection, session, recall info, queue count) |
 | `config` | Show configuration (file path, env vars, masked config) |
 | `parse-session` | Parse current session to file for manual review |
 | `parse-and-upsert-session` | Parse and upsert the full current session to Hindsight |

@@ -9,14 +9,20 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { HindsightClientWrapper } from "../client";
 import { expandSessionObservationScopes, type HindsightConfig } from "../config";
 import {
+  buildContextFromSessionName,
   buildDocumentTags,
   buildMessageArrayFromParsedSession,
-  getHindsightContextFromEntries,
   parseSessionFile,
 } from "../document";
-import { getHindsightMeta, shouldSessionBeRetained } from "../meta";
+import { getHindsightMeta, hasExtraContext, shouldSessionBeRetained } from "../meta";
 import { deleteAutoQueue } from "../queue";
-import { extractParentSessionId, getProjectName, getSessionDisplayName } from "../utils";
+import { FLUSH_BLOCKED_NO_EXTRA_CONTEXT } from "../retention";
+import {
+  extractParentSessionId,
+  getContextNameMaxLength,
+  getProjectName,
+  getSessionDisplayName,
+} from "../utils";
 
 /** Notification level for early-exit results from {@link parseCurrentSession}. */
 export type ParseExitLevel = "error" | "warning";
@@ -96,12 +102,17 @@ export function parseCurrentSession(
   const sessionTags = parsedMeta?.tags ?? [];
   const sessionName = getSessionDisplayName(
     ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-    ctx.sessionManager.getEntries.bind(ctx.sessionManager)
+    ctx.sessionManager.getEntries.bind(ctx.sessionManager),
+    getContextNameMaxLength(config)
   );
 
   const parentSessionId = extractParentSessionId(header.parentSession);
   const tags = buildDocumentTags(header, config, { sessionTags, parentSessionId });
-  const context = getHindsightContextFromEntries(originalEntries, config, sessionName);
+  const context = buildContextFromSessionName(
+    config.hindsightContextPrefix,
+    sessionName,
+    parsedMeta?.extraContext
+  );
   const parsedSession = {
     documentId,
     context,
@@ -184,6 +195,21 @@ export async function parseAndUpsertSession(
   config: HindsightConfig,
   client: HindsightClientWrapper
 ): Promise<{ message: string; level: "info" | ParseExitLevel }> {
+  // Check flush guard: requireExtraContextBeforeFlush
+  // This applies to all insertion paths (not just the auto-flush path)
+  // because the point of the setting is to ensure extra context is always
+  // set before inserting to Hindsight.
+  if (config.requireExtraContextBeforeFlush) {
+    const entries = ctx.sessionManager.getEntries();
+    const meta = getHindsightMeta(entries);
+    if (!hasExtraContext(meta)) {
+      return {
+        message: FLUSH_BLOCKED_NO_EXTRA_CONTEXT,
+        level: "warning",
+      };
+    }
+  }
+
   const result = parseCurrentSession(ctx, config);
 
   if ("message" in result) {

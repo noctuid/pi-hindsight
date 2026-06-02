@@ -6,11 +6,11 @@ import { existsSync, readFileSync } from "node:fs";
 import type { HindsightConfig, RetainContent, ToolFilter } from "./config";
 import { prepareEntry, shouldRetainMessage } from "./prepare";
 import {
+  deriveSessionName,
   extractParentSessionId,
-  extractTextFromContent,
   getBasedir,
+  getContextNameMaxLength,
   getProjectName,
-  truncate,
 } from "./utils";
 
 export interface SessionHeader {
@@ -158,23 +158,6 @@ function findForkStartIndex(conversationEntries: SessionEntry[], forkPoint: numb
 }
 
 /**
- * Truncate session title for Hindsight context field.
- */
-function truncateSessionTitle(entries: SessionEntry[], config: HindsightConfig): string {
-  // Find first user message or use session name
-  for (const entry of entries) {
-    if (entry.type === "message" && entry.message?.role === "user") {
-      const text = extractTextFromContent(entry.message.content);
-      if (text) {
-        return truncate(config.hindsightContextPrefix + text, config.hindsightContextMaxLength);
-      }
-    }
-  }
-
-  return `${config.hindsightContextPrefix}pi session`;
-}
-
-/**
  * Build document content from a session file.
  *
  * Delegates to {@link buildMessageArrayFromParsedSession} and serializes to JSON.
@@ -317,37 +300,37 @@ export function buildDocumentTags(
 }
 
 /**
+ * Build context string from a session name.
+ *
+ * Uses only the prefix + session name + extra context, with NO truncation.
+ * The session name should already be derived and truncated by
+ * {@link deriveSessionName} — this function just assembles the final string.
+ * Shared by document.ts (for parse-and-upsert) and retention.ts (for auto-flush).
+ */
+export function buildContextFromSessionName(
+  hindsightContextPrefix: string,
+  sessionName: string,
+  extraContext?: string
+): string {
+  const base = hindsightContextPrefix + sessionName;
+  if (!extraContext) return base;
+  return `${base}\n${extraContext}`;
+}
+
+/**
  * Get context string for Hindsight.
- * Prefers session name if provided, otherwise falls back to first user message.
+ *
+ * Derives the session name using {@link deriveSessionName} (with proper
+ * truncation via hindsightContextMaxLength) and assembles the final context
+ * string with prefix and extra context.
  */
 export function getHindsightContext(
   sessionPath: string,
   config: HindsightConfig,
-  sessionName?: string
+  sessionName?: string,
+  extraContext?: string
 ): string {
-  // Prefer session name if provided
-  if (sessionName) {
-    return truncate(config.hindsightContextPrefix + sessionName, config.hindsightContextMaxLength);
-  }
-
-  // Fall back to first user message
   const { entries } = parseSessionFile(sessionPath);
-  return truncateSessionTitle(entries, config);
-}
-
-/**
- * Get context string from pre-parsed session entries.
- * Prefers session name if provided, otherwise falls back to first user message.
- */
-export function getHindsightContextFromEntries(
-  entries: SessionEntry[],
-  config: HindsightConfig,
-  sessionName?: string
-): string {
-  // Prefer session name if provided
-  if (sessionName) {
-    return truncate(config.hindsightContextPrefix + sessionName, config.hindsightContextMaxLength);
-  }
-
-  return truncateSessionTitle(entries, config);
+  const name = deriveSessionName(sessionName, entries, getContextNameMaxLength(config));
+  return buildContextFromSessionName(config.hindsightContextPrefix, name, extraContext);
 }
