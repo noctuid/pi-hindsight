@@ -626,6 +626,76 @@ describe("registerCommands", () => {
       await getHandler()("toggle-retain", makeCtx());
       expect(appendedEntries[0]?.data).toEqual({ retained: true });
     });
+
+    it("blocks toggling on when requireExtraContextBeforeFlush is true and extra context not set", async () => {
+      confirmResult = true;
+      sessionEntries = [
+        { type: "custom", customType: "hindsight-meta", data: { retained: false } },
+      ];
+      register({ ...statusTestConfig, requireExtraContextBeforeFlush: true });
+      await getHandler()("toggle-retain", makeCtx());
+      expect(appendedEntries).toHaveLength(0);
+      expect(lastNotification?.message).toContain("extra context not set");
+      expect(lastNotification?.type).toBe("warning");
+    });
+
+    it("allows toggling on when requireExtraContextBeforeFlush is true and extra context is set", async () => {
+      confirmResult = true;
+      sessionEntries = [
+        {
+          type: "custom",
+          customType: "hindsight-meta",
+          data: { retained: false, extraContext: "fiction" },
+        },
+      ];
+      register({ ...statusTestConfig, requireExtraContextBeforeFlush: true });
+      await getHandler()("toggle-retain", makeCtx());
+      expect(appendedEntries).toHaveLength(1);
+      expect(appendedEntries[0]?.data).toEqual({ retained: true, extraContext: "fiction" });
+    });
+
+    it("allows toggling on when requireExtraContextBeforeFlush is true and extra context is empty string", async () => {
+      confirmResult = true;
+      sessionEntries = [
+        {
+          type: "custom",
+          customType: "hindsight-meta",
+          data: { retained: false, extraContext: "" },
+        },
+      ];
+      register({ ...statusTestConfig, requireExtraContextBeforeFlush: true });
+      await getHandler()("toggle-retain", makeCtx());
+      expect(appendedEntries).toHaveLength(1);
+      expect(appendedEntries[0]?.data).toEqual({ retained: true, extraContext: "" });
+    });
+
+    it("blocks toggling on when requireExtraContextBeforeFlush is true and no meta exists at all", async () => {
+      confirmResult = true;
+      sessionEntries = []; // no hindsight-meta entries
+      register({
+        ...statusTestConfig,
+        requireExtraContextBeforeFlush: true,
+        retainSessionsByDefault: false,
+      });
+      await getHandler()("toggle-retain", makeCtx());
+      expect(appendedEntries).toHaveLength(0);
+      expect(lastNotification?.message).toContain("extra context not set");
+    });
+
+    it("blocks toggling on when requireExtraContextBeforeFlush is true and meta has no extraContext key", async () => {
+      confirmResult = true;
+      sessionEntries = [
+        {
+          type: "custom",
+          customType: "hindsight-meta",
+          data: { retained: false, tags: ["topic:ai"] },
+        },
+      ];
+      register({ ...statusTestConfig, requireExtraContextBeforeFlush: true });
+      await getHandler()("toggle-retain", makeCtx());
+      expect(appendedEntries).toHaveLength(0);
+      expect(lastNotification?.message).toContain("extra context not set");
+    });
   });
 
   describe("tag subcommand", () => {
@@ -721,6 +791,55 @@ describe("registerCommands", () => {
       await getHandler()("remove-tag any", makeCtx());
       expect(lastNotification?.message).toContain('Tag "any" not found');
       expect(appendedEntries).toHaveLength(0);
+    });
+  });
+
+  describe("set-extra-context subcommand", () => {
+    it("sets extra context with text args", async () => {
+      register();
+      await getHandler()("set-extra-context This is fiction", makeCtx());
+      expect(lastNotification?.message).toContain("Extra context set");
+      expect(appendedEntries).toHaveLength(1);
+      expect(appendedEntries[0]?.customType).toBe("hindsight-meta");
+      expect(appendedEntries[0]?.data).toEqual({ extraContext: "This is fiction" });
+    });
+
+    it("sets extra context to empty string (satisfies flush guard)", async () => {
+      register();
+      await getHandler()("set-extra-context", makeCtx());
+      expect(lastNotification?.message).toContain("No extra context needed");
+      expect(appendedEntries).toHaveLength(1);
+      expect(appendedEntries[0]?.data).toEqual({ extraContext: "" });
+    });
+
+    it("preserves existing retained state when setting extra context", async () => {
+      sessionEntries = [
+        { type: "custom", customType: "hindsight-meta", data: { retained: false } },
+      ];
+      register();
+      await getHandler()("set-extra-context fiction session", makeCtx());
+      expect(appendedEntries[0]?.data).toEqual({
+        retained: false,
+        extraContext: "fiction session",
+      });
+    });
+
+    it("preserves existing tags when setting extra context", async () => {
+      sessionEntries = [
+        { type: "custom", customType: "hindsight-meta", data: { tags: ["topic:ai"] } },
+      ];
+      register();
+      await getHandler()("set-extra-context test", makeCtx());
+      expect(appendedEntries[0]?.data).toEqual({ tags: ["topic:ai"], extraContext: "test" });
+    });
+
+    it("replaces existing extra context", async () => {
+      sessionEntries = [
+        { type: "custom", customType: "hindsight-meta", data: { extraContext: "old" } },
+      ];
+      register();
+      await getHandler()("set-extra-context new context", makeCtx());
+      expect(appendedEntries[0]?.data).toEqual({ extraContext: "new context" });
     });
   });
 

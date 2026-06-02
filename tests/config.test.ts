@@ -55,6 +55,7 @@ const validConfig: HindsightConfig = {
   observationScopes: [["{session}"]] as string[][],
   statusHealthy: "🧠",
   retainSessionsByDefault: true,
+  requireExtraContextBeforeFlush: false,
   statusUnhealthy: "🤯",
 };
 
@@ -1875,6 +1876,29 @@ describe("loadConfig", () => {
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.retainSessionsByDefault).toBe(true); // Falls back to default
     expect(warning).toContain("Invalid boolean value");
+  });
+
+  // requireExtraContextBeforeFlush tests
+  it("requireExtraContextBeforeFlush defaults to false", () => {
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.requireExtraContextBeforeFlush).toBe(false);
+  });
+
+  it("requireExtraContextBeforeFlush can be set via config file", () => {
+    writeFileSync(
+      join(TEST_DIR, "config.jsonc"),
+      JSON.stringify({ requireExtraContextBeforeFlush: true })
+    );
+
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.requireExtraContextBeforeFlush).toBe(true);
+  });
+
+  it("requireExtraContextBeforeFlush can be set via PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH env var", () => {
+    process.env.PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH = "true";
+
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.requireExtraContextBeforeFlush).toBe(true);
   });
 
   // toolFilter tests

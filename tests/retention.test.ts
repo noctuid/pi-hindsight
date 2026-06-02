@@ -895,4 +895,69 @@ describe("observationScopes", () => {
     const retainCall = mockWrapper.retainCalls[0] as { observationScopes?: unknown };
     expect(retainCall.observationScopes).toEqual([["cwd:/home/user/project"], ["user:alice"]]);
   });
+
+  it("includes extra context in flushed context string", async () => {
+    enqueueAutoMessage(TEST_SESSION_ID, {
+      entry: { message: { role: "user", content: "Hello" } },
+      store_method: "auto",
+    });
+
+    const mockWrapper = createMockWrapper();
+    const entries = [
+      {
+        type: "custom",
+        customType: "hindsight-meta",
+        data: { retained: true, extraContext: "This session involves reading fiction" },
+      },
+    ];
+    await flushAutoQueue(
+      TEST_SESSION_ID,
+      "Fiction Session",
+      "2024-01-01T00:00:00Z",
+      "/home/user",
+      undefined,
+      defaultConfig,
+      mockWrapper as unknown as HindsightClientWrapper,
+      undefined,
+      entries
+    );
+
+    expect(mockWrapper.retainCalls).toHaveLength(1);
+    const retainCall = mockWrapper.retainCalls[0] as { context?: string };
+    expect(retainCall.context).toContain("Fiction Session");
+    expect(retainCall.context).toContain("This session involves reading fiction");
+    // Extra context is appended after session name with newline separator
+    expect(retainCall.context).toBe("pi: Fiction Session\nThis session involves reading fiction");
+  });
+
+  it("does not append newline when no extra context", async () => {
+    enqueueAutoMessage(TEST_SESSION_ID, {
+      entry: { message: { role: "user", content: "Hello" } },
+      store_method: "auto",
+    });
+
+    const mockWrapper = createMockWrapper();
+    const entries = [
+      {
+        type: "custom",
+        customType: "hindsight-meta",
+        data: { retained: true },
+      },
+    ];
+    await flushAutoQueue(
+      TEST_SESSION_ID,
+      "Plain Session",
+      "2024-01-01T00:00:00Z",
+      "/home/user",
+      undefined,
+      defaultConfig,
+      mockWrapper as unknown as HindsightClientWrapper,
+      undefined,
+      entries
+    );
+
+    expect(mockWrapper.retainCalls).toHaveLength(1);
+    const retainCall = mockWrapper.retainCalls[0] as { context?: string };
+    expect(retainCall.context).toBe("pi: Plain Session");
+  });
 });

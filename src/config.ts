@@ -72,9 +72,15 @@ export type TagGroupInput = TagGroupLeaf | TagGroupAndInput | TagGroupOrInput | 
 /** Role used when injecting auto-recall messages into the LLM context. */
 export type AutoRecallRole = "user" | "assistant";
 
-export type ToolName = "retain" | "recall" | "reflect";
+export type ToolName = "retain" | "recall" | "reflect" | "set_extra_context" | "get_extra_context";
 
-const VALID_TOOL_NAMES: ToolName[] = ["retain", "recall", "reflect"];
+const VALID_TOOL_NAMES: ToolName[] = [
+  "retain",
+  "recall",
+  "reflect",
+  "set_extra_context",
+  "get_extra_context",
+];
 
 export interface HindsightConfig {
   enabled: boolean;
@@ -104,6 +110,8 @@ export interface HindsightConfig {
   toolFilter: ToolFilter;
   flushOnCompact: boolean;
   retainSessionsByDefault: boolean;
+  /** When true, auto-flush events are blocked (warn instead) until extra context is set via /hindsight set-extra-context or the hindsight_set_extra_context tool. Default: false. */
+  requireExtraContextBeforeFlush: boolean;
   entities: EntityInput[];
   observationScopes: ObservationScopes;
   statusHealthy: string;
@@ -162,6 +170,7 @@ const DEFAULT_CONFIG: HindsightConfig = {
   },
   flushOnCompact: false,
   retainSessionsByDefault: true,
+  requireExtraContextBeforeFlush: false,
   entities: [],
   observationScopes: null,
   statusHealthy: "🧠",
@@ -197,6 +206,7 @@ const VALID_CONFIG_KEYS = new Set<keyof HindsightConfig>([
   "toolFilter",
   "flushOnCompact",
   "retainSessionsByDefault",
+  "requireExtraContextBeforeFlush",
   "entities",
   "observationScopes",
   "statusHealthy",
@@ -502,6 +512,7 @@ function setConfigValue(
     case "autoRecallDisplay":
     case "autoRecallPersist":
     case "retainSessionsByDefault":
+    case "requireExtraContextBeforeFlush":
     case "flushOnCompact": {
       if (typeof value === "boolean") {
         config[key] = value;
@@ -525,7 +536,7 @@ function setConfigValue(
     }
     case "hindsightContextMaxLength":
     case "recallMaxQueryChars": {
-      if (typeof value === "number") {
+      if (typeof value === "number" && Number.isFinite(value)) {
         config[key] = value;
         return;
       }
@@ -534,7 +545,7 @@ function setConfigValue(
       return result.warning;
     }
     case "maxRecallTokens": {
-      if (typeof value === "number") {
+      if (typeof value === "number" && Number.isFinite(value)) {
         config[key] = value;
         return;
       }
@@ -1099,6 +1110,7 @@ export function loadConfig(extensionsDir?: string): {
     PI_HINDSIGHT_CONSTANT_TAGS: "constantTags",
     PI_HINDSIGHT_FLUSH_ON_COMPACT: "flushOnCompact",
     PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT: "retainSessionsByDefault",
+    PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH: "requireExtraContextBeforeFlush",
     PI_HINDSIGHT_RETAIN_CONTENT: "retainContent",
     PI_HINDSIGHT_STRIP: "strip",
     PI_HINDSIGHT_TOOL_FILTER: "toolFilter",
@@ -1196,6 +1208,11 @@ export function validateConfig(config: HindsightConfig): {
       `hindsightContextMaxLength must be >= 0. Using default: ${DEFAULT_CONFIG.hindsightContextMaxLength}.`
     );
     config.hindsightContextMaxLength = DEFAULT_CONFIG.hindsightContextMaxLength;
+  }
+  if (config.hindsightContextPrefix.length > config.hindsightContextMaxLength) {
+    warnings.push(
+      `hindsightContextPrefix ("${config.hindsightContextPrefix}", ${config.hindsightContextPrefix.length} chars) is longer than hindsightContextMaxLength (${config.hindsightContextMaxLength}). Auto-derived session names will not be truncated. Consider increasing hindsightContextMaxLength.`
+    );
   }
 
   // Validate recallMaxQueryChars - reset to default if out of range

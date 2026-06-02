@@ -13,6 +13,7 @@ import type { HindsightClientWrapper } from "../client";
 import type { HindsightConfig } from "../config";
 import type { RecallMessageDetails } from "../index";
 import {
+  createExtraContextSubcommand,
   createRemoveTagSubcommand,
   createTagSubcommand,
   createToggleRetainSubcommand,
@@ -60,6 +61,7 @@ export function registerCommands(
     "toggle-retain": createToggleRetainSubcommand(pi, client, config),
     tag: createTagSubcommand(pi),
     "remove-tag": createRemoveTagSubcommand(pi),
+    "set-extra-context": createExtraContextSubcommand(pi),
     "toggle-display": createToggleDisplaySubcommand(
       config,
       getAutoRecallDisplayOverride,

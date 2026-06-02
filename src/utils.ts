@@ -107,26 +107,56 @@ export function getProjectName(cwd: string): string {
 }
 
 /**
- * Get the display name for a session.
- * Returns manual title if set, otherwise extracts text from first user message.
- * Truncates to 100 characters to avoid overly long names.
+ * Derive the session display name from an explicit name or first user message.
+ *
+ * Returns the explicit name if set, otherwise extracts the first user message
+ * and truncates it to `maxLength`. Returns "Untitled" if neither is available.
+ *
+ * This is the single source of truth for session name derivation + truncation.
+ * Both the runtime flush path and the parsing path should use this function
+ * (or its wrapper `getSessionDisplayName`) to ensure consistent context strings.
  */
-export function getSessionDisplayName(
-  getSessionName: () => string | undefined,
-  getEntries: () => Array<{ type: string; message?: { role?: string; content?: unknown } }>
+export function deriveSessionName(
+  explicitName: string | undefined,
+  entries: Array<{ type: string; message?: { role?: string; content?: unknown } }>,
+  maxLength: number = 100
 ): string {
   // Try manual title first
-  const name = getSessionName();
-  if (name) return name;
+  if (explicitName) return explicitName;
 
   // Fall back to first user message
-  const entries = getEntries();
   for (const entry of entries) {
     if (entry.type === "message" && entry.message?.role === "user") {
       const text = extractTextFromContent(entry.message.content);
-      if (text) return truncate(text, 100);
+      if (text) return truncate(text, maxLength);
     }
   }
 
   return "Untitled";
+}
+
+/**
+ * Max length available for the session-name portion of the context string.
+ *
+ * This is `hindsightContextMaxLength - hindsightContextPrefix.length`, so that the
+ * total `prefix + name` fits within `hindsightContextMaxLength`.
+ * Guards against prefix longer than the configured max (returns 0 in that case).
+ */
+export function getContextNameMaxLength(config: {
+  hindsightContextMaxLength: number;
+  hindsightContextPrefix: string;
+}): number {
+  return Math.max(0, config.hindsightContextMaxLength - config.hindsightContextPrefix.length);
+}
+
+/**
+ * Convenience wrapper around {@link deriveSessionName} that takes closures
+ * (for use with pi's session manager API).
+ */
+export function getSessionDisplayName(
+  getSessionName: () => string | undefined,
+  getEntries: () => Array<{ type: string; message?: { role?: string; content?: unknown } }>,
+  maxLength: number = 100
+): string {
+  return deriveSessionName(getSessionName(), getEntries(), maxLength);
 }

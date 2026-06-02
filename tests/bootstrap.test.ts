@@ -2112,4 +2112,403 @@ describe("real entrypoint bootstrap", () => {
     // setActiveTools should NOT have been called — retain tool isn't registered
     expect(pi.setActiveToolsCalls.length).toBe(0);
   });
+
+  // ============================================
+  // requireExtraContextBeforeFlush integration tests
+  // ============================================
+
+  it("requireExtraContextBeforeFlush: session_before_switch blocks flush when extra context is not set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+
+    const handler = pi.handlers.get("session_before_switch")!;
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+
+    await handler({ type: "session_before_switch" }, ctx);
+
+    // Queue should still be intact — flush was blocked
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+    deleteAutoQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: session_shutdown blocks flush when extra context is not set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const handler = pi.handlers.get("session_shutdown")!;
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+
+    await handler({ type: "session_shutdown" }, ctx);
+
+    // Queue should still be intact — flush was blocked
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+    deleteAutoQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: flush proceeds when extra context is set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const handler = pi.handlers.get("session_before_switch")!;
+    // Entries include extra context in metadata
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { retained: true, extraContext: "Fiction session" },
+          },
+        ]),
+      },
+    });
+
+    await handler({ type: "session_before_switch" }, ctx);
+
+    // Queue should be flushed — extra context was set
+    expect(readAutoQueue(sessionId)).toHaveLength(0);
+    deleteAutoQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: parse-and-upsert-session subcommand blocks when extra context is not set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { deleteAutoQueue, deleteToolQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const { writeSessionFile, withTempDir } = await import("./fixtures");
+    await withTempDir(async (tmpDir) => {
+      const sessionPath = writeSessionFile(tmpDir, sessionId);
+      const ctx = createMockContext({
+        _sessionId: sessionId,
+        sessionManager: {
+          ...createMockContext({ _sessionId: sessionId }).sessionManager,
+          getSessionFile: mock(() => sessionPath),
+          getEntries: mock(() => []),
+        },
+      });
+
+      await commandHandler("parse-and-upsert-session", ctx);
+
+      const notification = (ctx as unknown as { ui: { notify: ReturnType<typeof mock> } }).ui.notify
+        .mock.calls;
+      const lastCall = notification[notification.length - 1]!;
+      expect(lastCall[0]).toContain("extra context not set");
+      expect(lastCall[1]).toBe("warning");
+    });
+
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: parse-and-upsert-session subcommand proceeds when extra context is set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { deleteAutoQueue, deleteToolQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const { writeSessionFile, withTempDir } = await import("./fixtures");
+    await withTempDir(async (tmpDir) => {
+      const sessionPath = writeSessionFile(tmpDir, sessionId);
+      const ctx = createMockContext({
+        _sessionId: sessionId,
+        sessionManager: {
+          ...createMockContext({ _sessionId: sessionId }).sessionManager,
+          getSessionFile: mock(() => sessionPath),
+          getEntries: mock(() => [
+            {
+              type: "custom",
+              customType: "hindsight-meta",
+              data: { retained: true, extraContext: "Fiction session" },
+            },
+          ]),
+        },
+      });
+
+      await commandHandler("parse-and-upsert-session", ctx);
+
+      const notification = (ctx as unknown as { ui: { notify: ReturnType<typeof mock> } }).ui.notify
+        .mock.calls;
+      const lastCall = notification[notification.length - 1]!;
+      expect(lastCall[0]).toContain("Parsed and upserted");
+    });
+
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: flush subcommand blocks when extra context is not set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, deleteToolQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+
+    await commandHandler("flush", ctx);
+
+    const notification = (ctx as unknown as { ui: { notify: ReturnType<typeof mock> } }).ui.notify
+      .mock.calls;
+    const lastCall = notification[notification.length - 1]!;
+    expect(lastCall[0]).toContain("extra context not set");
+    expect(lastCall[1]).toBe("warning");
+    // Queue should still be intact
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: flush subcommand proceeds when extra context is set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, deleteToolQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { retained: true, extraContext: "Fiction session" },
+          },
+        ]),
+      },
+    });
+
+    await commandHandler("flush", ctx);
+
+    const notification = (ctx as unknown as { ui: { notify: ReturnType<typeof mock> } }).ui.notify
+      .mock.calls;
+    const lastCall = notification[notification.length - 1]!;
+    expect(lastCall[0]).toContain("Flushed");
+    // Queue should be flushed
+    expect(readAutoQueue(sessionId)).toHaveLength(0);
+
+    deleteAutoQueue(sessionId);
+    deleteToolQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: flush proceeds when extra context is explicitly set to empty string", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const handler = pi.handlers.get("session_before_switch")!;
+    // Entries include extraContext set to empty string ("I don't need extra context")
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => [
+          {
+            type: "custom",
+            customType: "hindsight-meta",
+            data: { retained: true, extraContext: "" },
+          },
+        ]),
+      },
+    });
+
+    await handler({ type: "session_before_switch" }, ctx);
+
+    // Queue should be flushed — explicit empty string satisfies the guard
+    expect(readAutoQueue(sessionId)).toHaveLength(0);
+    deleteAutoQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: session_before_fork blocks flush when extra context is not set", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const handler = pi.handlers.get("session_before_fork")!;
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+
+    await handler({ type: "session_before_fork" }, ctx);
+
+    // Queue should still be intact — flush was blocked
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+    deleteAutoQueue(sessionId);
+  });
+
+  it("requireExtraContextBeforeFlush: session_compact blocks flush when extra context is not set and flushOnCompact is true", async () => {
+    activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true, flushOnCompact: true };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
+      require("../src/queue") as typeof import("../src/queue");
+    deleteAutoQueue(sessionId);
+    enqueueAutoMessage(sessionId, {
+      entry: { message: { role: "user", content: [{ type: "text", text: "Hello" }] } },
+      store_method: "auto",
+    });
+
+    const handler = pi.handlers.get("session_compact")!;
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+
+    await handler({ type: "session_compact" }, ctx);
+
+    // Queue should still be intact — flush was blocked
+    expect(readAutoQueue(sessionId)).toHaveLength(1);
+    deleteAutoQueue(sessionId);
+  });
 });

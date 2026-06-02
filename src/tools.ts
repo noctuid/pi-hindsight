@@ -8,7 +8,7 @@ import type { Budget, RecallResponse, ReflectResponse } from "@vectorize-io/hind
 import { type Static, Type } from "typebox";
 import type { HindsightClientWrapper } from "./client";
 import type { HindsightConfig, MemoryType, ToolName } from "./config";
-import { getHindsightMeta, shouldSessionBeRetained } from "./meta";
+import { buildMetaUpdate, getHindsightMeta, shouldSessionBeRetained } from "./meta";
 import { queueToolRetain } from "./retention";
 import { extractParentSessionId } from "./utils";
 
@@ -57,6 +57,12 @@ interface ReflectDetails {
   response?: ReflectResponse;
 }
 
+interface ExtraContextDetails {
+  success: boolean;
+  extraContext?: string;
+  error?: string;
+}
+
 /**
  * Check if a specific tool is enabled based on config.toolsEnabled.
  * - `true` (default): all tools enabled
@@ -79,6 +85,115 @@ export function registerTools(
   config: HindsightConfig,
   client: HindsightClientWrapper | null
 ): void {
+  // Register hindsight_set_extra_context when enabled.
+  // Gated by toolsEnabled like all other tools. Can be included in the array
+  // as "set_extra_context". The /hindsight set-extra-context slash command still
+  // works regardless of this setting.
+  if (isToolEnabled(config, "set_extra_context")) {
+    pi.registerTool({
+      name: "hindsight_set_extra_context",
+      label: "Hindsight Extra Context",
+      description:
+        "Set extra context/caveats for memory extraction. Use when the session involves content that could be misclassified when split into chunks.",
+      parameters: Type.Object({
+        text: Type.String({
+          description:
+            "The extra context. Replaces any existing value. Example: 'This session involves reading Dune; characters are not the user and information is not factual.'",
+        }),
+      }),
+
+      renderResult(result, _options, theme, context) {
+        const text = (context.lastComponent as Text) ?? new Text("", 0, 0);
+        const details = result.details as ExtraContextDetails;
+        if (details.success) {
+          if (details.extraContext) {
+            text.setText(theme.fg("success", `✓ Extra context set: ${details.extraContext}`));
+          } else {
+            text.setText(theme.fg("success", "✓ No extra context needed (flush guard satisfied)"));
+          }
+        } else {
+          text.setText(theme.fg("error", `✗ ${details.error ?? "Failed to set extra context"}`));
+        }
+        return text;
+      },
+
+      async execute(
+        _toolCallId,
+        params,
+        _signal,
+        _onUpdate,
+        ctx
+      ): Promise<AgentToolResult<ExtraContextDetails>> {
+        const entries = ctx.sessionManager.getEntries();
+        const existingMeta = getHindsightMeta(entries);
+
+        const extraContext = params.text.trim();
+        // Always store extraContext (even empty string) so the flush guard
+        // can distinguish "explicitly set to empty" from "never set".
+        const meta = buildMetaUpdate(existingMeta, { extraContext });
+
+        pi.appendEntry("hindsight-meta", meta);
+
+        const message = extraContext
+          ? "Extra context set."
+          : "No extra context needed (flush guard satisfied).";
+
+        return {
+          content: [{ type: "text", text: message }],
+          details: { success: true, extraContext },
+        };
+      },
+    });
+  }
+
+  if (isToolEnabled(config, "get_extra_context")) {
+    pi.registerTool({
+      name: "hindsight_get_extra_context",
+      label: "Hindsight Get Extra Context",
+      description: "Get the current extra context set for this session.",
+      parameters: Type.Object({}),
+
+      renderResult(result, _options, theme, context) {
+        const text = (context.lastComponent as Text) ?? new Text("", 0, 0);
+        const details = result.details as ExtraContextDetails;
+        if (details.success) {
+          if (details.extraContext) {
+            text.setText(theme.fg("success", `✓ Extra context: ${details.extraContext}`));
+          } else if (details.extraContext === "") {
+            text.setText(theme.fg("success", "✓ No extra context needed (flush guard satisfied)"));
+          } else {
+            text.setText(theme.fg("success", "✓ No extra context set"));
+          }
+        } else {
+          text.setText(theme.fg("error", `✗ ${details.error ?? "Failed to get extra context"}`));
+        }
+        return text;
+      },
+
+      async execute(
+        _toolCallId,
+        _params,
+        _signal,
+        _onUpdate,
+        ctx
+      ): Promise<AgentToolResult<ExtraContextDetails>> {
+        const entries = ctx.sessionManager.getEntries();
+        const existingMeta = getHindsightMeta(entries);
+        const extraContext = existingMeta?.extraContext;
+
+        const message =
+          extraContext !== undefined
+            ? extraContext || "No extra context needed (flush guard satisfied)"
+            : "No extra context set";
+
+        return {
+          content: [{ type: "text", text: message }],
+          details: { success: true, extraContext },
+        };
+      },
+    });
+  }
+
   // Register hindsight_retain if enabled
   if (isToolEnabled(config, "retain")) {
     // hindsight_retain - always available, just queues to disk

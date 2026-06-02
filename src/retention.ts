@@ -2,10 +2,15 @@
  * Retention handling for pi message events.
  */
 
+/** Message shown when a flush is blocked because extra context is not set. */
+export const FLUSH_BLOCKED_NO_EXTRA_CONTEXT =
+  "Hindsight flush blocked: extra context not set. Use /hindsight set-extra-context or the hindsight_set_extra_context tool to set extraction caveats before flushing.";
+
 import type { MemoryItemInput } from "@vectorize-io/hindsight-client";
 import type { HindsightClientWrapper } from "./client";
 import type { HindsightConfig } from "./config";
 import { expandSessionObservationScopes } from "./config";
+import { buildContextFromSessionName } from "./document";
 import { getHindsightMeta } from "./meta";
 import type { ToolQueueEntry } from "./queue";
 import {
@@ -15,7 +20,7 @@ import {
   readAutoQueue,
   readToolQueue,
 } from "./queue";
-import { getBasedir, getProjectName, truncate } from "./utils";
+import { getBasedir, getProjectName } from "./utils";
 
 /**
  * Queue a tool retain entry with complete tags.
@@ -103,10 +108,15 @@ export async function flushAutoQueue(
     ...sessionTags,
   ];
 
-  // Build context
-  const context = truncate(
-    config.hindsightContextPrefix + sessionName,
-    config.hindsightContextMaxLength
+  // Build context using shared function for parity with document.ts.
+  // The session name is derived and truncated by getSessionDisplayName()
+  // (using hindsightContextMaxLength) before being passed here.
+  // buildContextFromSessionName only assembles prefix + name + extraContext.
+  const extraContext = meta?.extraContext;
+  const context = buildContextFromSessionName(
+    config.hindsightContextPrefix,
+    sessionName,
+    extraContext
   );
 
   // Concatenate all entries into single content array

@@ -5,6 +5,9 @@ Status: I would call this beta level software, though I am focusing on stability
 
 # Table of Contents
 - [Key Features](#key-features)
+  - [Retain Memories](#retain-memories)
+  - [Auto-Recall Memories](#auto-recall-memories)
+  - [Reflect](#reflect)
 - [Philosophy](#philosophy)
 - [Local Quickstart](#local-quickstart)
 - [Configuration](#configuration)
@@ -46,7 +49,7 @@ You can set up [mental models](https://hindsight.vectorize.io/developer/api/ment
 Follow [hindsight best practices](https://hindsight.vectorize.io/best-practices):
 - Retains messages as JSON, which hindsight can intelligently chunk
 - Retains all data for the same session with the same `document_id`
-- Uses manually set session name or truncated first message as `context` field
+- Uses manually set session name (preserved as-is) or truncated first message as `context` field
 - Sets the `timestamp` field
 
 Additionally:
@@ -140,7 +143,10 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
   // switch to ["{project}"] if you want project-scoped recall instead
   "autoRecallTags": ["user:<me>"],
   // don't include untagged memories
-  "autoRecallTagsMatch": "any_strict"
+  "autoRecallTagsMatch": "any_strict",
+  // require extra context to be set before flushing prevents accidental retention
+  // of fiction or content not about the user that could be misclassified by extraction
+  // "requireExtraContextBeforeFlush": true,
 }
 ```
 
@@ -151,6 +157,7 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 - Configure your [observation scopes](docs/reference.md#observationscopes) to control how observations are consolidated across sessions.
 - Consider whether you want to ingest tool calls and results. Including tool calls might be useful for remembering details about writes/edits (especially if you use pi for writing prose). Including tool results might be useful, for example, if you want to store memories about reads. You can always keep both and put more details about what should be ignored in your retain mission.
 - Consider whether you want to ingest assistant thinking or just the final output
+- If you are getting incorrect memories extracted (e.g. other people conflated with the user), consider [setting extra context](docs/reference.md#extra-context--flush-guard) for sessions; this is especially useful for non-programming sessions
 
 Example - For the retain mission, you may want to experiment with including something like this to avoid retaining duplicate information that may end up in the LLM thinking or final output after recall/reflect:
 - "Ignore resurfaced information that has already been stored or meta-commentary about it (unless the commentary is a new realization, surprise, correction, or new connection; in that case retain only the new commentary)"

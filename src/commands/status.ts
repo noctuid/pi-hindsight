@@ -39,7 +39,7 @@ export function createStatusSubcommand(
         lines.push("  Server: not configured");
       }
 
-      // Bank and session info
+      // Session and queue info
       lines.push("\n== Session ==");
       lines.push(`  Bank ID: ${config.bankId}`);
       const sessionId = ctx.sessionManager.getSessionId();
@@ -52,12 +52,19 @@ export function createStatusSubcommand(
       const meta = getHindsightMeta(sessionEntries);
       const tags = meta?.tags ?? [];
       lines.push(`  Tags: ${tags.length > 0 ? tags.join(", ") : "none"}`);
-
-      // Queue status
       if (sessionId) {
         const queueCount = getQueueCount(sessionId);
         lines.push(`  Queued messages: ${queueCount}`);
       }
+
+      // Extra context
+      lines.push("\n== Extra Context ==");
+      const extraContext = meta?.extraContext;
+      lines.push(
+        extraContext !== undefined
+          ? extraContext || "(empty — no extra context needed, flush guard satisfied)"
+          : "(not set)"
+      );
 
       // Last recall status
       lines.push("\n== Last Recall ==");
@@ -75,6 +82,10 @@ export function createStatusSubcommand(
       lines.push("\n== Features ==");
       lines.push(`  Auto-recall: ${config.autoRecallEnabled ? "enabled" : "disabled"}`);
       lines.push(`  Auto-retain: ${config.autoRetainEnabled ? "enabled" : "disabled"}`);
+      lines.push(`  Flush on compact: ${config.flushOnCompact ? "enabled" : "disabled"}`);
+      lines.push(
+        `  Require extra context: ${config.requireExtraContextBeforeFlush ? "enabled" : "disabled"}`
+      );
 
       // Active recall settings
       lines.push("\n== Auto Recall Settings ==");

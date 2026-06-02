@@ -17,12 +17,18 @@ import {
   type TagGroupInput,
   validateConfig,
 } from "./config";
-import { getHindsightMeta, shouldSessionBeRetained } from "./meta";
+import { getHindsightMeta, hasExtraContext, shouldSessionBeRetained } from "./meta";
 import { prepareEntry, shouldRetainMessage } from "./prepare";
 import { enqueueAutoMessage } from "./queue";
-import { flushQueues, getQueueCount } from "./retention";
+import { FLUSH_BLOCKED_NO_EXTRA_CONTEXT, flushQueues, getQueueCount } from "./retention";
 import { isToolEnabled, registerTools, updateRetainToolVisibility } from "./tools";
-import { extractParentSessionId, getProjectName, getSessionDisplayName, truncate } from "./utils";
+import {
+  deriveSessionName,
+  extractParentSessionId,
+  getContextNameMaxLength,
+  getProjectName,
+  truncate,
+} from "./utils";
 
 // Runtime toggle for recall display (overrides config)
 let autoRecallDisplayOverride: boolean | null = null;
@@ -238,7 +244,7 @@ export default function (pi: ExtensionAPI) {
       console.warn("pi-hindsight: auto-recall skipped: no active session");
       return;
     }
-    const sessionCwd = header?.cwd || ctx.cwd;
+    const sessionCwd = header?.cwd ?? ctx.cwd;
     const parentSessionId = extractParentSessionId(header?.parentSession);
     const result = await doAutoRecall(
       query,
@@ -431,20 +437,32 @@ export default function (pi: ExtensionAPI) {
     const count = getQueueCount(sessionId);
     if (count === 0) return;
 
+    // Check flush guard: requireExtraContextBeforeFlush
+    if (config.requireExtraContextBeforeFlush) {
+      const entries = ctx.sessionManager.getEntries();
+      const meta = getHindsightMeta(entries);
+      if (!hasExtraContext(meta)) {
+        console.warn(`pi-hindsight: ${FLUSH_BLOCKED_NO_EXTRA_CONTEXT}`);
+        ctx.ui.notify(FLUSH_BLOCKED_NO_EXTRA_CONTEXT, "warning");
+        return;
+      }
+    }
+
     console.log(`pi-hindsight: Flushing ${count} messages ${reason}`);
 
     const header = ctx.sessionManager.getHeader();
     const entries = ctx.sessionManager.getEntries();
-    const sessionName = getSessionDisplayName(
-      ctx.sessionManager.getSessionName.bind(ctx.sessionManager),
-      ctx.sessionManager.getEntries.bind(ctx.sessionManager)
+    const sessionName = deriveSessionName(
+      ctx.sessionManager.getSessionName(),
+      entries,
+      getContextNameMaxLength(config)
     );
     const parentSessionId = extractParentSessionId(header?.parentSession);
     const result = await flushQueues(
       sessionId,
       sessionName,
       header?.timestamp ?? new Date().toISOString(),
-      header?.cwd || ctx.cwd,
+      header?.cwd ?? ctx.cwd,
       parentSessionId,
       config,
       client,
