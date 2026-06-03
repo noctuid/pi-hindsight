@@ -47,7 +47,7 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 | `recallMaxQueryChars` | `800` | Maximum characters from the user's message to use as the recall query |
 | `recallPromptPreamble` | *(see defaults)* | The system note text inside `<hindsight_memories>` fences that instructs the LLM how to use recalled memories |
 | `constantTags` | `["harness:pi"]` | Tags included on every retained document (useful for filtering in Hindsight) |
-| `flushOnCompact` | `false` | Flush queued messages to Hindsight after a compaction event |
+| `flushOnCompact` | `false` | Flush queued messages to Hindsight before a compaction event |
 | `requireExtraContextBeforeFlush` | `false` | Block automatic flush until extra context is set via `/hindsight set-extra-context` or the `hindsight_set_extra_context` tool. Helps prevent incorrect extraction for sessions involving satire, fiction, external blog posts, or other content that could be misclassified. See [Extra Context & Flush Guard](#extra-context--flush-guard). |
 
 ### Disabled Mode

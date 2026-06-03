@@ -135,7 +135,7 @@ describe("real entrypoint bootstrap", () => {
       "before_agent_start",
       "session_before_switch",
       "session_before_fork",
-      "session_compact",
+      "session_before_compact",
       "session_shutdown",
     ];
 
@@ -947,14 +947,14 @@ describe("real entrypoint bootstrap", () => {
     deleteAutoQueue(BOOTSTRAP_SESSION);
   });
 
-  it("session_compact handler skips flush when flushOnCompact is false", async () => {
+  it("session_before_compact handler skips flush when flushOnCompact is false", async () => {
     activeConfig = { ...testConfig, flushOnCompact: false };
 
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
 
-    const handler = pi.handlers.get("session_compact")!;
+    const handler = pi.handlers.get("session_before_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
 
     const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
@@ -965,21 +965,21 @@ describe("real entrypoint bootstrap", () => {
       store_method: "auto",
     });
 
-    await handler({ type: "session_compact" }, ctx);
+    await handler({ type: "session_before_compact" }, ctx);
 
     // Queue should still be intact — flushOnCompact is false
     expect(readAutoQueue(BOOTSTRAP_SESSION)).toHaveLength(1);
     deleteAutoQueue(BOOTSTRAP_SESSION);
   });
 
-  it("session_compact handler flushes when flushOnCompact is true", async () => {
+  it("session_before_compact handler flushes when flushOnCompact is true", async () => {
     activeConfig = { ...testConfig, flushOnCompact: true };
 
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
 
-    const handler = pi.handlers.get("session_compact")!;
+    const handler = pi.handlers.get("session_before_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
 
     const { enqueueAutoMessage, deleteAutoQueue, readAutoQueue } =
@@ -990,7 +990,7 @@ describe("real entrypoint bootstrap", () => {
       store_method: "auto",
     });
 
-    await handler({ type: "session_compact" }, ctx);
+    await handler({ type: "session_before_compact" }, ctx);
 
     expect(readAutoQueue(BOOTSTRAP_SESSION)).toHaveLength(0);
     deleteAutoQueue(BOOTSTRAP_SESSION);
@@ -2480,7 +2480,7 @@ describe("real entrypoint bootstrap", () => {
     deleteAutoQueue(sessionId);
   });
 
-  it("requireExtraContextBeforeFlush: session_compact blocks flush when extra context is not set and flushOnCompact is true", async () => {
+  it("requireExtraContextBeforeFlush: session_before_compact blocks flush when extra context is not set and flushOnCompact is true", async () => {
     activeConfig = { ...testConfig, requireExtraContextBeforeFlush: true, flushOnCompact: true };
 
     const pi = createMockPi();
@@ -2496,7 +2496,7 @@ describe("real entrypoint bootstrap", () => {
       store_method: "auto",
     });
 
-    const handler = pi.handlers.get("session_compact")!;
+    const handler = pi.handlers.get("session_before_compact")!;
     const ctx = createMockContext({
       _sessionId: sessionId,
       sessionManager: {
@@ -2505,7 +2505,7 @@ describe("real entrypoint bootstrap", () => {
       },
     });
 
-    await handler({ type: "session_compact" }, ctx);
+    await handler({ type: "session_before_compact" }, ctx);
 
     // Queue should still be intact — flush was blocked
     expect(readAutoQueue(sessionId)).toHaveLength(1);
