@@ -361,15 +361,17 @@ export default function (pi: ExtensionAPI) {
     await flushCurrentSession(ctx, "before session fork");
   });
 
-  // Flush queues after compaction (if enabled)
-  pi.on("session_compact", async (_event, ctx: ExtensionContext) => {
+  // Flush queues before compaction (if enabled)
+  pi.on("session_before_compact", async (_event, ctx: ExtensionContext) => {
     if (config.flushOnCompact) {
-      await flushCurrentSession(ctx, "after compaction");
+      await flushCurrentSession(ctx, "before compaction");
     }
   });
 
-  // Flush queues on session shutdown
-  pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
+  // Flush queues on session shutdown (quit/reload only)
+  // For new/resume/fork, session_before_switch or session_before_fork already flushed
+  pi.on("session_shutdown", async (event, ctx: ExtensionContext) => {
+    if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") return;
     await flushCurrentSession(ctx, "on shutdown", true);
   });
 
