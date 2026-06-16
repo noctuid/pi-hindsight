@@ -308,6 +308,37 @@ describe("registerCommands", () => {
       expect(snippetLine?.endsWith("...")).toBe(false);
       expect(snippetLine).toBe("  Snippet: ");
     });
+
+    it("shows server version and compatibility when reachable", async () => {
+      register();
+      await getHandler()("status", makeCtx());
+      expect(lastNotification?.message).toContain("Server: reachable");
+      expect(lastNotification?.message).toContain("Server version: 0.9.0");
+      expect(lastNotification?.message).toContain("Required version: >=0.8.3");
+      expect(lastNotification?.message).toContain("Compatibility: compatible");
+    });
+
+    it("shows incompatible server version when server is too old", async () => {
+      mockClient = createMockClient({
+        getServerVersionResult: { success: true, version: "0.7.0" },
+      });
+      register(statusTestConfig, mockClient);
+      await getHandler()("status", makeCtx());
+      expect(lastNotification?.message).toContain("Server: reachable");
+      expect(lastNotification?.message).toContain("Server version: 0.7.0");
+      expect(lastNotification?.message).toContain("Compatibility: incompatible");
+    });
+
+    it("shows unavailable version when version query fails", async () => {
+      mockClient = createMockClient({
+        getServerVersionResult: { success: false, error: "HTTP 500" },
+      });
+      register(statusTestConfig, mockClient);
+      await getHandler()("status", makeCtx());
+      expect(lastNotification?.message).toContain("Server: reachable");
+      expect(lastNotification?.message).toContain("Server version: unavailable");
+      expect(lastNotification?.message).toContain("Compatibility: unknown");
+    });
   });
 
   describe("config subcommand", () => {

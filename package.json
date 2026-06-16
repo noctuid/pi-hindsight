@@ -25,7 +25,7 @@
     "@earendil-works/pi-tui": "*"
   },
   "dependencies": {
-    "@vectorize-io/hindsight-client": "0.6.1",
+    "@vectorize-io/hindsight-client": "0.8.3",
     "jsonc-parser": "^3.3.1",
     "typebox": "^1.1.24"
   },

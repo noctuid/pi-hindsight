@@ -8,6 +8,7 @@ import type { HindsightConfig } from "../config";
 import type { RecallMessageDetails } from "../index";
 import { getHindsightMeta, shouldSessionBeRetained } from "../meta";
 import { getPendingWorkCount } from "../retention";
+import { getHindsightCompatibilityError, MIN_HINDSIGHT_VERSION } from "../version";
 import type { Subcommand } from "./types";
 
 /**
@@ -32,6 +33,21 @@ export function createStatusSubcommand(
         const healthResult = await client.healthCheck(ctx.signal);
         if (healthResult.success) {
           lines.push("  Server: reachable");
+
+          const versionResult = await client.getServerVersion(ctx.signal);
+          lines.push(`  Required version: >=${MIN_HINDSIGHT_VERSION}`);
+          if (versionResult.success && versionResult.version) {
+            lines.push(`  Server version: ${versionResult.version}`);
+            const compatibilityError = getHindsightCompatibilityError(versionResult.version);
+            if (compatibilityError) {
+              lines.push(`  Compatibility: incompatible (${compatibilityError})`);
+            } else {
+              lines.push("  Compatibility: compatible");
+            }
+          } else {
+            lines.push(`  Server version: unavailable (${versionResult.error ?? "unknown error"})`);
+            lines.push("  Compatibility: unknown");
+          }
         } else {
           lines.push(`  Server: unreachable (${healthResult.error})`);
         }

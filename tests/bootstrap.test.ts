@@ -41,15 +41,17 @@ let activeConfig: realConfig.HindsightConfig = { ...testConfig };
 /** Active loadConfig warning. */
 let activeWarning: string | undefined;
 
-/** Factory that creates the mock client class. Tests override to change healthCheck behavior. */
+/** Factory that creates the mock client class. Tests override to change healthCheck/version behavior. */
 let activeClientFactory: () => {
   healthCheck: ReturnType<typeof mock>;
+  getServerVersion?: ReturnType<typeof mock>;
   retain: ReturnType<typeof mock>;
   retainBatch: ReturnType<typeof mock>;
   recall: ReturnType<typeof mock>;
   reflect: ReturnType<typeof mock>;
 } = () => ({
   healthCheck: mock(() => Promise.resolve({ success: true })),
+  getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
   retain: mock(() => Promise.resolve({ success: true })),
   retainBatch: mock(() => Promise.resolve({ success: true })),
   recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
@@ -83,6 +85,9 @@ mock.module("@vectorize-io/hindsight-client", () => ({
 mock.module("../src/client", () => ({
   HindsightClientWrapper: class {
     healthCheck = activeClientFactory().healthCheck;
+    getServerVersion =
+      activeClientFactory().getServerVersion ??
+      mock(() => Promise.resolve({ success: true, version: "0.9.0" }));
     retain = activeClientFactory().retain;
     retainBatch = activeClientFactory().retainBatch;
     recall = activeClientFactory().recall;
@@ -118,6 +123,7 @@ afterEach(async () => {
   activeWarning = undefined;
   activeClientFactory = () => ({
     healthCheck: mock(() => Promise.resolve({ success: true })),
+    getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
     retain: mock(() => Promise.resolve({ success: true })),
     retainBatch: mock(() => Promise.resolve({ success: true })),
     recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
@@ -337,6 +343,160 @@ describe("real entrypoint bootstrap", () => {
     await handler({ type: "session_start" }, ctx);
 
     expect(pi.appendedEntries).toHaveLength(0);
+  });
+
+  it("session_start handler sets unhealthy status when server version is incompatible", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.7.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes("0.7.0") && m.includes("too old"))).toBe(true);
+  });
+
+  it("session_start handler sets unhealthy status when server returns a malformed version", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "dev" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes("invalid version") && m.includes("dev"))).toBe(
+      true
+    );
+  });
+
+  it("session_start handler sets unhealthy status when server version query fails", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: false, error: "HTTP 500" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
+    expect(
+      messages.some((m: string) => m.includes("Unable to query Hindsight server version"))
+    ).toBe(true);
+    expect(messages.some((m: string) => m.includes("HTTP 500"))).toBe(true);
+  });
+
+  it("session_start does not query version when health check fails", async () => {
+    const getServerVersion = mock(() => Promise.resolve({ success: true, version: "0.9.0" }));
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "Connection refused" })),
+      getServerVersion,
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(getServerVersion).not.toHaveBeenCalled();
+  });
+
+  it("session_start does not query health or version when config is invalid", async () => {
+    activeConfig = { ...testConfig, apiUrl: "", apiKey: "" };
+
+    const healthCheck = mock(() => Promise.resolve({ success: true }));
+    const getServerVersion = mock(() => Promise.resolve({ success: true, version: "0.9.0" }));
+    activeClientFactory = () => ({
+      healthCheck,
+      getServerVersion,
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(healthCheck).not.toHaveBeenCalled();
+    expect(getServerVersion).not.toHaveBeenCalled();
+  });
+
+  it("session_start warns only once for repeated incompatible version checks", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.7.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const ctx = createMockContext();
+    const handler = pi.handlers.get("session_start")!;
+
+    await handler({ type: "session_start" }, ctx);
+    await handler({ type: "session_start" }, ctx);
+
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    const compatibilityWarnings = notifyCalls.filter((c: unknown[]) =>
+      String(c[0]).includes("too old")
+    );
+    expect(compatibilityWarnings).toHaveLength(1);
   });
 
   it("tool queue flushes on shutdown when autoRetainEnabled=false and session retained=true", async () => {

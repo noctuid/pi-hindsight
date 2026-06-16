@@ -11,7 +11,7 @@ import {
   type RecallResponse,
   type ReflectResponse,
 } from "@vectorize-io/hindsight-client";
-import type { HindsightConfig, ObservationScopes, TagGroupInput } from "./config";
+import type { HindsightConfig, ObservationScopes, TagGroupInput, TagsMatch } from "./config";
 
 export interface RetainOptions {
   content: string;
@@ -29,7 +29,7 @@ export interface RetainOptions {
 export interface RecallOptions {
   query: string;
   tags?: string[];
-  tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+  tagsMatch?: TagsMatch;
   tagGroups?: TagGroupInput[];
   types?: ("world" | "experience" | "observation")[];
   budget?: Budget;
@@ -41,7 +41,7 @@ export interface ReflectOptions {
   /** Filter memories by tags during reflection. If not specified, all memories are considered. */
   tags?: string[];
   /** How to match tags: 'any' (OR, includes untagged), 'all' (AND, includes untagged), 'any_strict' (OR, excludes untagged), 'all_strict' (AND, excludes untagged). Default: 'any'. */
-  tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+  tagsMatch?: TagsMatch;
   /** Budget level controlling how much effort to spend on retrieval and reasoning: 'low', 'mid', or 'high'.
    *  Default: 'low' (per Hindsight SDK). Reflect runs an agentic loop with up to 10 iterations
    *  of multi-tool search + LLM calls, so it is substantially slower than recall even at low budget. */
@@ -115,6 +115,60 @@ export class HindsightClientWrapper {
         return { success: false, error: "Operation cancelled" };
       }
       return { success: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (abortHandler) {
+        signal?.removeEventListener("abort", abortHandler);
+      }
+    }
+  }
+
+  /**
+   * Query the Hindsight server version via the SDK's built-in getVersion API.
+   * Chains the caller's abort signal and a timeout onto an internal controller
+   * so the underlying request is cancelled on either trigger.
+   */
+  async getServerVersion(
+    signal?: AbortSignal,
+    timeoutMs: number = 5000
+  ): Promise<{ success: boolean; version?: string; error?: string }> {
+    const controller = new AbortController();
+    let timedOut = false;
+
+    // Chain external abort signal
+    let abortHandler: (() => void) | undefined;
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        abortHandler = () => controller.abort();
+        signal.addEventListener("abort", abortHandler);
+      }
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+
+      const data = await this.client.getVersion({ signal: controller.signal });
+      const version = typeof data.api_version === "string" ? data.api_version : undefined;
+      if (!version) {
+        return { success: false, error: "missing api_version" };
+      }
+      return { success: true, version };
+    } catch (e) {
+      // The SDK wraps fetch aborts in HindsightError, so rely on our controller
+      // state (rather than error type) to distinguish timeout vs. cancellation.
+      if (controller.signal.aborted) {
+        if (timedOut) {
+          return { success: false, error: `Operation timed out after ${timeoutMs}ms` };
+        }
+        return { success: false, error: "Operation cancelled" };
+      }
+      return { success: false, error: this.formatError(e) };
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       if (abortHandler) {
