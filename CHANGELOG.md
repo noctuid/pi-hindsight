@@ -12,6 +12,7 @@
   - When enabled, logs parse timing to console
   - Added `/hindsight active-tools` subcommand — shows currently active tool names for debugging tool visibility issues.
   - Blocked flush notifications ("Session does not allow retention", "extra context not set") now use `warning` severity, and auto-flush notifications (blocked, "no pending changes", and successful flush messages like "Parsed and upserted …" / "Flushed N tool entries") are suppressed during automatic flushes (session switch/fork) in normal mode and only shown when `debug: true`. They still show for `/quit` (user may want to know why data wasn't flushed) and user-initiated flushes (`/hindsight flush`, `/hindsight toggle-retain`). For `/reload`, they only show in debug mode.
+- Added startup Hindsight server version compatibility check. The extension now queries the server version (via the `@vectorize-io/hindsight-client` SDK's built-in `getVersion` API) after a successful health check and marks the status indicator unhealthy when the server is older than the required minimum (`0.8.3`), the version is missing/malformed, or the query fails. `/hindsight status` shows the server version, required minimum, and compatibility. Incompatibility warnings are deduplicated across repeated `session_start` events.
 
 ### Breaking Changes
 

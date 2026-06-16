@@ -121,6 +121,7 @@ export const statusTestConfig: HindsightConfig = {
 export function createMockClient(
   options: {
     healthCheckResult?: { success: boolean; error?: string };
+    getServerVersionResult?: { success: boolean; version?: string; error?: string };
     retainResult?: { success: boolean; error?: string };
     retainBatchResult?: { success: boolean; error?: string };
     recallResult?: {
@@ -133,6 +134,9 @@ export function createMockClient(
 ): HindsightClientWrapper {
   return {
     healthCheck: mock(() => Promise.resolve(options.healthCheckResult ?? { success: true })),
+    getServerVersion: mock(() =>
+      Promise.resolve(options.getServerVersionResult ?? { success: true, version: "0.9.0" })
+    ),
     retain: mock(() => Promise.resolve(options.retainResult ?? { success: true })),
     retainBatch: mock(() => Promise.resolve(options.retainBatchResult ?? { success: true })),
     recall: mock(() =>

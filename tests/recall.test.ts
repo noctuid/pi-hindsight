@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { registerCommands } from "../src/commands";
-import type { HindsightConfig } from "../src/config";
+import type { HindsightConfig, TagsMatch } from "../src/config";
 import type { AutoRecallConfig, RecallClient, RecallMessageDetails } from "../src/index";
 import { doAutoRecallImpl, formatRecallMessage } from "../src/index";
 import { RecallOverlayComponent } from "../src/overlay";
@@ -726,7 +726,7 @@ describe("doAutoRecallImpl", () => {
         _opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         },
         _signal: AbortSignal | undefined
@@ -1044,7 +1044,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1076,7 +1076,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1106,7 +1106,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedQuery = opts.query;
@@ -1140,7 +1140,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1168,7 +1168,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1196,7 +1196,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTypes = opts.types;
@@ -1249,7 +1249,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTags = opts.tags;
@@ -1280,7 +1280,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTags = opts.tags;
@@ -1310,7 +1310,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           types?: ("world" | "experience" | "observation")[];
         }) => {
           receivedTagsMatch = opts.tagsMatch;
@@ -1341,7 +1341,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           tagGroups?: import("../src/config").TagGroupInput[];
           types?: ("world" | "experience" | "observation")[];
         }) => {
@@ -1379,7 +1379,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           tagGroups?: import("../src/config").TagGroupInput[];
           types?: ("world" | "experience" | "observation")[];
         }) => {
@@ -1410,7 +1410,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           tagGroups?: import("../src/config").TagGroupInput[];
           types?: ("world" | "experience" | "observation")[];
         }) => {
@@ -1450,7 +1450,7 @@ describe("doAutoRecallImpl", () => {
         recall: async (opts: {
           query: string;
           tags?: string[];
-          tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+          tagsMatch?: TagsMatch;
           tagGroups?: import("../src/config").TagGroupInput[];
           types?: ("world" | "experience" | "observation")[];
         }) => {

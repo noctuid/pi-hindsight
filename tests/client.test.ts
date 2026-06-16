@@ -56,10 +56,11 @@ function createAbortAwareFetch(resolveWith?: object) {
 function mockSdkMethods(client: HindsightClientWrapper) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sdk = (client as any).client;
+  const origGetVersion = sdk.getVersion.bind(sdk);
   const origRetainBatch = sdk.retainBatch.bind(sdk);
   const origRecall = sdk.recall.bind(sdk);
   const origReflect = sdk.reflect.bind(sdk);
-  return { sdk, origRetainBatch, origRecall, origReflect };
+  return { sdk, origGetVersion, origRetainBatch, origRecall, origReflect };
 }
 
 // ============================================
@@ -173,6 +174,115 @@ describe("healthCheck", () => {
     await client.healthCheck(signal);
 
     expect(removeEventListenerSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================
+// getServerVersion
+// ============================================
+
+/**
+ * Helper: create a getVersion mock that rejects when the supplied abort signal
+ * fires (mirroring how the real SDK cancels an in-flight request on abort).
+ */
+function createAbortableGetVersion(resolveWith?: { api_version: string }) {
+  return mock((opts?: { signal?: AbortSignal }) => {
+    const signal = opts?.signal;
+    return new Promise<{ api_version: string }>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new HindsightError("getVersion failed", undefined, new Error("aborted")));
+        return;
+      }
+      signal?.addEventListener(
+        "abort",
+        () => reject(new HindsightError("getVersion failed", undefined, new Error("aborted"))),
+        { once: true }
+      );
+      if (resolveWith) resolve(resolveWith);
+    });
+  });
+}
+
+describe("getServerVersion", () => {
+  it("returns { success, version } when getVersion returns api_version", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    sdk.getVersion = mock(() => Promise.resolve({ api_version: "0.8.3" }));
+
+    const result = await client.getServerVersion();
+
+    expect(result).toEqual({ success: true, version: "0.8.3" });
+    sdk.getVersion = origGetVersion;
+  });
+
+  it("returns error when api_version is missing from the response", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    sdk.getVersion = mock(() => Promise.resolve({} as { api_version: string }));
+
+    const result = await client.getServerVersion();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("missing api_version");
+    sdk.getVersion = origGetVersion;
+  });
+
+  it("returns formatted error when getVersion throws HindsightError", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    sdk.getVersion = mock(() => Promise.reject(new HindsightError("getVersion failed", 503)));
+
+    const result = await client.getServerVersion();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("getVersion failed");
+    expect(result.error).toContain("503");
+    expect(result.error).toContain("test-bank");
+    sdk.getVersion = origGetVersion;
+  });
+
+  it("returns { success: false, error: 'Operation timed out...' } when timeout fires", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    sdk.getVersion = createAbortableGetVersion();
+
+    const result = await client.getServerVersion(undefined, 100);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Operation timed out after 100ms");
+    sdk.getVersion = origGetVersion;
+  });
+
+  it("returns { success: false, error: 'Operation cancelled' } when signal is aborted", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    // No resolveWith: the request hangs until the abort signal fires.
+    sdk.getVersion = createAbortableGetVersion();
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10);
+
+    const result = await client.getServerVersion(controller.signal, 5000);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Operation cancelled");
+    sdk.getVersion = origGetVersion;
+  });
+
+  it("returns formatted error on network failure", async () => {
+    const client = new HindsightClientWrapper(testConfig);
+    const { sdk, origGetVersion } = mockSdkMethods(client);
+    sdk.getVersion = mock(() =>
+      Promise.reject(
+        new HindsightError("getVersion failed", undefined, new TypeError("fetch failed"))
+      )
+    );
+
+    const result = await client.getServerVersion();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("getVersion failed");
+    expect(result.error).toContain("test-bank");
+    sdk.getVersion = origGetVersion;
   });
 });
 

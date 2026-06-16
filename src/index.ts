@@ -16,6 +16,7 @@ import {
   expandAutoRecallTags,
   loadConfig,
   type TagGroupInput,
+  type TagsMatch,
   validateConfig,
 } from "./config";
 import { getHindsightMeta, shouldSessionBeRetained, updateSessionMetadata } from "./meta";
@@ -24,6 +25,7 @@ import { touchPendingFlag } from "./queue";
 import { flushCurrentSession } from "./retention";
 import { isToolEnabled, registerTools, updateRetainToolVisibility } from "./tools";
 import { extractParentSessionId, getProjectName, truncate } from "./utils";
+import { getHindsightCompatibilityError } from "./version";
 
 // Runtime toggle for recall display (overrides config)
 let autoRecallDisplayOverride: boolean | null = null;
@@ -36,6 +38,9 @@ let lastRecallMessage: ReturnType<typeof formatRecallMessage> | null = null;
 // (not consumed by the context handler like lastRecallMessage is).
 let lastRecallDetails: RecallMessageDetails | null = null;
 
+// Track the last compatibility warning so we don't spam session_start events.
+let lastCompatibilityMessage: string | null = null;
+
 /**
  * Reset module-level mutable state. Exported for testing only.
  */
@@ -43,6 +48,7 @@ export function _resetState(): void {
   autoRecallDisplayOverride = null;
   lastRecallMessage = null;
   lastRecallDetails = null;
+  lastCompatibilityMessage = null;
 }
 
 /**
@@ -175,13 +181,29 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
       return;
     }
-    // Verify server is reachable
+
+    // Verify server is reachable before querying version.
     const healthResult = await client?.healthCheck(ctx.signal);
-    if (healthResult?.success) {
-      ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
-    } else {
+    if (!healthResult?.success) {
       ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
+      return;
     }
+
+    // Verify server version compatibility.
+    const versionResult = await client?.getServerVersion(ctx.signal);
+    const compatibilityError = versionResult?.success
+      ? getHindsightCompatibilityError(versionResult.version)
+      : `Unable to query Hindsight server version: ${versionResult?.error ?? "unknown error"}`;
+    if (compatibilityError) {
+      if (compatibilityError !== lastCompatibilityMessage) {
+        ctx.ui.notify(compatibilityError, "warning");
+        lastCompatibilityMessage = compatibilityError;
+      }
+      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
+      return;
+    }
+
+    ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
 
     // On startup, optionally flush pending work across all sessions. Runs after
     // the client is ready and avoids noisy no-work output (no "No pending changes"
@@ -779,7 +801,7 @@ export interface RecallClient {
       query: string;
       types?: ("world" | "experience" | "observation")[];
       tags?: string[];
-      tagsMatch?: "any" | "all" | "any_strict" | "all_strict";
+      tagsMatch?: TagsMatch;
       tagGroups?: TagGroupInput[];
     },
     signal: AbortSignal | undefined
@@ -799,7 +821,7 @@ export interface AutoRecallConfig {
   recallPromptPreamble: string;
   autoRecallShowDateTime: boolean;
   autoRecallTags: string[] | null;
-  autoRecallTagsMatch: "any" | "all" | "any_strict" | "all_strict";
+  autoRecallTagsMatch: TagsMatch;
   autoRecallTagGroups: TagGroupInput[] | null;
 }
 
