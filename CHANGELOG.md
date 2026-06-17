@@ -2,6 +2,10 @@
 
 ## Pending
 
+### Fixes
+
+- **Config parse errors now include location and code** — Warnings for malformed `config.jsonc`/`config.json` now list each parse error with its line, character, and `jsonc-parser` error code (e.g. `line 1, character 3: InvalidSymbol`).
+
 ### Changes
 
 - Removed the noisy `pi-hindsight initialized` startup log from `src/index.ts`. Warning, error, and disabled-mode messages are still emitted. Reduces console noise on successful startup.

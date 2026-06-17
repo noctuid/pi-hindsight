@@ -714,6 +714,9 @@ describe("loadConfig", () => {
     const { warning } = loadConfig(TEST_DIR);
     expect(warning).toBeDefined();
     expect(warning).toContain("pi-hindsight: Failed to parse config file");
+    expect(warning).toContain("parse error(s)");
+    expect(warning).toContain("Details:");
+    expect(warning).toMatch(/line \d+, character \d+: \w+/);
   });
 
   it("returns warning for unknown config keys", () => {
