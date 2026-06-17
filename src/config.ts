@@ -12,7 +12,21 @@ import type {
   TagGroupNotInput,
   TagGroupOrInput,
 } from "@vectorize-io/hindsight-client";
-import { type ParseError, parse as parseJsonc } from "jsonc-parser";
+import { type ParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser";
+
+function offsetToLineColumn(content: string, offset: number): { line: number; character: number } {
+  let line = 1;
+  let character = 1;
+  for (let i = 0; i < offset && i < content.length; i++) {
+    if (content[i] === "\n") {
+      line++;
+      character = 1;
+    } else {
+      character++;
+    }
+  }
+  return { line, character };
+}
 
 export interface RetainContent {
   assistant: ("text" | "thinking" | "toolCall")[];
@@ -1137,8 +1151,14 @@ export function loadConfig(extensionsDir?: string): {
       const fileConfig = parseJsonc(fileContent, errors, { allowTrailingComma: true });
 
       if (errors.length > 0) {
+        const details = errors
+          .map((e) => {
+            const { line, character } = offsetToLineColumn(fileContent, e.offset);
+            return `line ${line}, character ${character}: ${printParseErrorCode(e.error)}`;
+          })
+          .join("; ");
         warnings.push(
-          `Failed to parse config file ${configPath}: ${errors.length} parse error(s). Using defaults.`
+          `Failed to parse config file ${configPath}: ${errors.length} parse error(s). Using defaults. Details: ${details}`
         );
       } else {
         // Backward compatibility: map old config key names to new names
