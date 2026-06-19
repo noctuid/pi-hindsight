@@ -1,7 +1,7 @@
 # About
 A pi extension for [Hindsight](https://hindsight.vectorize.io/) AI memory.
 
-Status: I would call this beta level software, though I am focusing on stability and am unlikely to make breaking changes at this point. Please report any issues. I am using this daily without problems.
+Status: I would call this beta level software, though I am focusing on stability and trying to avoid breaking changes unless really necessary (though still reserve the right to and recommend locking your version to a tag). Please report any issues. I am using this daily without problems.
 
 # Table of Contents
 - [Key Features](#key-features)
@@ -104,10 +104,10 @@ HINDSIGHT_API_RETAIN_STRUCTURED_CHUNK_SIZE=<size>
 
 You can customize your retain, observation, and reflect missions in the UI (as well as other settings). See also [Recommended User Best Practices](#recommended-user-best-practices). It is recommended you read over these *early on* to avoid needing to reingest data later after changing settings (but that is always a possibility if you need to).
 
-Create `~/.pi/agent/extensions/pi-hindsight/config.jsonc` — see the [Example Configuration](#example-configuration) below.
+Create `~/.pi/agent/epimetheus/config.jsonc` — see the [Example Configuration](#example-configuration) below.
 
 # Configuration
-Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json` or `config.jsonc` (JSONC has precedence). See the [Reference](docs/reference.md) for detailed documentation of all settings.
+Configuration is stored in `<getAgentDir()>/epimetheus/config.json` or `config.jsonc` (JSONC has precedence). See the [Reference](docs/reference.md) for detailed documentation of all settings.
 
 ## Example Configuration
 ```jsonc

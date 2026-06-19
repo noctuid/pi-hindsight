@@ -53,7 +53,7 @@ describe("truncate", () => {
 });
 
 describe("extractParentSessionId", () => {
-  const testDir = join(tmpdir(), "pi-hindsight-test");
+  const testDir = join(tmpdir(), "epimetheus-test");
 
   beforeEach(() => {
     if (!existsSync(testDir)) {
@@ -181,29 +181,62 @@ describe("getBasedir", () => {
 });
 
 describe("getProjectName", () => {
-  it("returns PI_HINDSIGHT_PROJECT_NAME when set", () => {
-    const original = process.env.PI_HINDSIGHT_PROJECT_NAME;
+  it("returns EPIMETHEUS_PROJECT_NAME when set", () => {
+    const originalNew = process.env.EPIMETHEUS_PROJECT_NAME;
+    const originalOld = process.env.PI_HINDSIGHT_PROJECT_NAME;
+    process.env.EPIMETHEUS_PROJECT_NAME = "custom-project";
+    try {
+      expect(getProjectName("/home/user/myapp")).toBe("custom-project");
+    } finally {
+      if (originalNew === undefined) delete process.env.EPIMETHEUS_PROJECT_NAME;
+      else process.env.EPIMETHEUS_PROJECT_NAME = originalNew;
+      if (originalOld === undefined) delete process.env.PI_HINDSIGHT_PROJECT_NAME;
+      else process.env.PI_HINDSIGHT_PROJECT_NAME = originalOld;
+    }
+  });
+
+  it("falls back to legacy PI_HINDSIGHT_PROJECT_NAME when EPIMETHEUS_PROJECT_NAME is unset", () => {
+    const originalNew = process.env.EPIMETHEUS_PROJECT_NAME;
+    const originalOld = process.env.PI_HINDSIGHT_PROJECT_NAME;
+    delete process.env.EPIMETHEUS_PROJECT_NAME;
     process.env.PI_HINDSIGHT_PROJECT_NAME = "custom-project";
     try {
       expect(getProjectName("/home/user/myapp")).toBe("custom-project");
     } finally {
-      if (original === undefined) {
-        delete process.env.PI_HINDSIGHT_PROJECT_NAME;
-      } else {
-        process.env.PI_HINDSIGHT_PROJECT_NAME = original;
-      }
+      if (originalNew === undefined) delete process.env.EPIMETHEUS_PROJECT_NAME;
+      else process.env.EPIMETHEUS_PROJECT_NAME = originalNew;
+      if (originalOld === undefined) delete process.env.PI_HINDSIGHT_PROJECT_NAME;
+      else process.env.PI_HINDSIGHT_PROJECT_NAME = originalOld;
     }
   });
 
-  it("falls back to cwd basename when PI_HINDSIGHT_PROJECT_NAME is not set", () => {
-    const original = process.env.PI_HINDSIGHT_PROJECT_NAME;
+  it("prioritizes EPIMETHEUS_PROJECT_NAME over PI_HINDSIGHT_PROJECT_NAME", () => {
+    const originalNew = process.env.EPIMETHEUS_PROJECT_NAME;
+    const originalOld = process.env.PI_HINDSIGHT_PROJECT_NAME;
+    process.env.EPIMETHEUS_PROJECT_NAME = "new-project";
+    process.env.PI_HINDSIGHT_PROJECT_NAME = "old-project";
+    try {
+      expect(getProjectName("/home/user/myapp")).toBe("new-project");
+    } finally {
+      if (originalNew === undefined) delete process.env.EPIMETHEUS_PROJECT_NAME;
+      else process.env.EPIMETHEUS_PROJECT_NAME = originalNew;
+      if (originalOld === undefined) delete process.env.PI_HINDSIGHT_PROJECT_NAME;
+      else process.env.PI_HINDSIGHT_PROJECT_NAME = originalOld;
+    }
+  });
+
+  it("falls back to cwd basename when neither project-name env var is set", () => {
+    const originalNew = process.env.EPIMETHEUS_PROJECT_NAME;
+    const originalOld = process.env.PI_HINDSIGHT_PROJECT_NAME;
+    delete process.env.EPIMETHEUS_PROJECT_NAME;
     delete process.env.PI_HINDSIGHT_PROJECT_NAME;
     try {
       expect(getProjectName("/home/user/myapp")).toBe("myapp");
     } finally {
-      if (original !== undefined) {
-        process.env.PI_HINDSIGHT_PROJECT_NAME = original;
-      }
+      if (originalNew === undefined) delete process.env.EPIMETHEUS_PROJECT_NAME;
+      else process.env.EPIMETHEUS_PROJECT_NAME = originalNew;
+      if (originalOld === undefined) delete process.env.PI_HINDSIGHT_PROJECT_NAME;
+      else process.env.PI_HINDSIGHT_PROJECT_NAME = originalOld;
     }
   });
 });

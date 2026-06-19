@@ -84,14 +84,15 @@ mock.module("@vectorize-io/hindsight-client", () => ({
 
 mock.module("../src/client", () => ({
   HindsightClientWrapper: class {
-    healthCheck = activeClientFactory().healthCheck;
+    clientMocks = activeClientFactory();
+    healthCheck = this.clientMocks.healthCheck;
     getServerVersion =
-      activeClientFactory().getServerVersion ??
+      this.clientMocks.getServerVersion ??
       mock(() => Promise.resolve({ success: true, version: "0.9.0" }));
-    retain = activeClientFactory().retain;
-    retainBatch = activeClientFactory().retainBatch;
-    recall = activeClientFactory().recall;
-    reflect = activeClientFactory().reflect;
+    retain = this.clientMocks.retain;
+    retainBatch = this.clientMocks.retainBatch;
+    recall = this.clientMocks.recall;
+    reflect = this.clientMocks.reflect;
   },
 }));
 
@@ -134,6 +135,20 @@ afterEach(async () => {
 });
 
 describe("real entrypoint bootstrap", () => {
+  /**
+   * Run a healthy `session_start` so the extension's `startupReady` flag becomes
+   * true for subsequent operational handler/command invocations in a test. Uses
+   * the default (healthy) client + a default ctx whose entries already contain
+   * hindsight-meta (so session_start does not append a new meta entry here).
+   *
+   * `startupReady` defaults to false (health check not yet passed); tests that
+   * exercise operational handlers/commands must establish readiness first.
+   */
+  async function runHealthySessionStart(pi: ReturnType<typeof createMockPi>): Promise<void> {
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, createMockContext());
+  }
+
   it("registers all expected event handlers", async () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
@@ -158,10 +173,21 @@ describe("real entrypoint bootstrap", () => {
     }
   });
 
-  it("registers hindsight tools", async () => {
+  it("defers hindsight tool registration to the first healthy session_start", async () => {
+    // Tools are registered lazily in the session_start success path (after
+    // health + version checks pass), not at extension init. Before any healthy
+    // startup, no hindsight_* tool is registered.
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+
+    // No tools registered immediately after init.
+    expect(pi.tools).toHaveLength(0);
+
+    // After a healthy session_start, the configured hindsight tools are
+    // registered (and auto-activate via refreshTools).
+    const ctx = createMockContext();
+    await pi.handlers.get("session_start")!({ type: "session_start" }, ctx);
 
     const toolNames = pi.tools.map((t) => t.name);
     expect(toolNames).toContain("hindsight_retain");
@@ -257,7 +283,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🧠");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🧠");
   });
 
   it("session_start runs flush-pending on startup when autoFlushPendingOn includes startup (no-work stays silent)", async () => {
@@ -274,7 +300,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start", reason: "startup" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🧠");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🧠");
     // No notifications: no "No pending changes", no errors.
     const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
     expect(notifyCalls.length).toBe(0);
@@ -363,7 +389,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
     const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
     const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
     expect(messages.some((m: string) => m.includes("0.7.0") && m.includes("too old"))).toBe(true);
@@ -387,7 +413,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
     const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
     const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
     expect(messages.some((m: string) => m.includes("invalid version") && m.includes("dev"))).toBe(
@@ -413,7 +439,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
     const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
     const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
     expect(
@@ -441,7 +467,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
     expect(getServerVersion).not.toHaveBeenCalled();
   });
 
@@ -467,7 +493,7 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
     expect(healthCheck).not.toHaveBeenCalled();
     expect(getServerVersion).not.toHaveBeenCalled();
   });
@@ -499,12 +525,251 @@ describe("real entrypoint bootstrap", () => {
     expect(compatibilityWarnings).toHaveLength(1);
   });
 
+  it("startup readiness: health check failure performs no operational side effects", async () => {
+    // Regression: when the server is unreachable, session_start must NOT
+    // auto-create hindsight-meta, write session-state, touch the pending queue,
+    // update retain-tool visibility, or run flush-pending — only set unhealthy.
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "Connection refused" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+    activeConfig = { ...testConfig, autoFlushPendingOn: ["startup"] };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { readSessionState } =
+      require("../src/session-state") as typeof import("../src/session-state");
+    const { removePendingFlag, clearSessionQueueState, touchPendingFlag, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+    // Pre-existing pending marker: flush-pending (if it ran) would drain it.
+    await touchPendingFlag(sessionId);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []), // no existing meta → old code would auto-create
+      },
+    });
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start", reason: "startup" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    // No session metadata appended.
+    expect(pi.appendedEntries).toHaveLength(0);
+    // No live session-state file written.
+    expect(readSessionState(sessionId)).toBeNull();
+    // No tool registration (tools register lazily only on a healthy startup),
+    // so no hindsight_* tool is registered/active and no setActiveTools call
+    // was made.
+    expect(pi.tools).toHaveLength(0);
+    expect(pi.setActiveToolsCalls).toHaveLength(0);
+    // flush-pending did not run: the pre-existing marker survives, and no
+    // notifications were emitted.
+    expect(hasPendingFlag(sessionId)).toBe(true);
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    expect(notifyCalls.length).toBe(0);
+
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+  });
+
+  it("startup readiness: version incompatibility performs no operational side effects", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.7.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { readSessionState } =
+      require("../src/session-state") as typeof import("../src/session-state");
+    const { removePendingFlag, clearSessionQueueState } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    expect(pi.appendedEntries).toHaveLength(0);
+    expect(readSessionState(sessionId)).toBeNull();
+    // No tools registered/active and no setActiveTools call (lazy registration
+    // only happens on a healthy startup).
+    expect(pi.tools).toHaveLength(0);
+    expect(pi.setActiveToolsCalls).toHaveLength(0);
+
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+  });
+
+  it("startup readiness gates auto-retain on unhealthy startup (health check fails)", async () => {
+    // After a failed session_start (unreachable server), the message_end
+    // auto-retain handler must skip — no pending marker is touched.
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "Connection refused" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+
+    const ctx = createMockContext({ _sessionId: sessionId });
+
+    // Failed startup leaves startupReady=false.
+    const startHandler = pi.handlers.get("session_start")!;
+    await startHandler({ type: "session_start" }, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+
+    // message_end should NOT touch the pending marker (gated by startupReady).
+    const messageEndHandler = pi.handlers.get("message_end")!;
+    await messageEndHandler(
+      {
+        type: "message_end",
+        message: { role: "user", content: [{ type: "text", text: "Hello" }] },
+      },
+      ctx
+    );
+    expect(hasPendingFlag(sessionId)).toBe(false);
+
+    removePendingFlag(sessionId);
+  });
+
+  it("startup readiness gates auto-recall and auto-flush on unhealthy startup", async () => {
+    const recall = mock(() => Promise.resolve({ success: true, response: { results: [] } }));
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "Connection refused" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall,
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    await touchPendingFlag(sessionId);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    const ctx = createMockContext({ _sessionId: sessionId });
+
+    // Failed startup leaves startupReady=false.
+    const startHandler = pi.handlers.get("session_start")!;
+    await startHandler({ type: "session_start" }, ctx);
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+
+    // Recall client should NOT be called (auto-recall gated by startupReady).
+    const basHandler = pi.handlers.get("before_agent_start")!;
+    await basHandler({ type: "before_agent_start", prompt: "What do I prefer?" }, ctx);
+    expect(recall).not.toHaveBeenCalled();
+
+    // Auto-flush on session_shutdown (reload) should skip — pending marker stays.
+    const shutdownHandler = pi.handlers.get("session_shutdown")!;
+    await shutdownHandler({ type: "session_shutdown", reason: "reload" }, ctx);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+  });
+
+  it("startup readiness recovers after a healthy session_start re-enables operational handlers", async () => {
+    // Before the first healthy startup, readiness is false (initial health check
+    // failed), so auto-retain skips. A subsequent healthy session_start latches
+    // readiness on (one-way), so auto-retain resumes.
+    let healthSuccess = false;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: healthSuccess })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+
+    const ctx = createMockContext({ _sessionId: sessionId });
+    const startHandler = pi.handlers.get("session_start")!;
+
+    // First start: unhealthy → auto-retain skipped.
+    await startHandler({ type: "session_start" }, ctx);
+    const messageEndHandler = pi.handlers.get("message_end")!;
+    await messageEndHandler(
+      { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Hi" }] } },
+      ctx
+    );
+    expect(hasPendingFlag(sessionId)).toBe(false);
+
+    // Second start: healthy → auto-retain resumes.
+    healthSuccess = true;
+    await startHandler({ type: "session_start" }, ctx);
+    await messageEndHandler(
+      { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Hi" }] } },
+      ctx
+    );
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+  });
+
   it("tool queue flushes on shutdown when autoRetainEnabled=false and session retained=true", async () => {
     activeConfig = { ...testConfig, autoRetainEnabled: false };
 
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { enqueueToolMessage, removePendingFlag, clearSessionQueueState } =
@@ -577,6 +842,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag } =
@@ -648,6 +914,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag } =
@@ -738,6 +1005,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag } =
@@ -809,6 +1077,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag } =
@@ -935,6 +1204,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("message_end")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1088,6 +1358,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_shutdown")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1133,6 +1404,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_shutdown")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1166,6 +1438,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_shutdown")!;
     // createMockContext writes a session file with hindsight-meta {retained:true}
@@ -1200,7 +1473,7 @@ describe("real entrypoint bootstrap", () => {
       expect(messages.some((m) => m.includes("extra context not set"))).toBe(true);
       // ... AND it is mirrored to console.warn (visible after TUI shutdown)
       expect(warnCalls.some((m) => m.includes("extra context not set"))).toBe(true);
-      expect(warnCalls.some((m) => m.startsWith("pi-hindsight:"))).toBe(true);
+      expect(warnCalls.some((m) => m.startsWith("epimetheus:"))).toBe(true);
       // Pending marker stays (guard blocks, setting context later allows flush)
       expect(hasPendingFlag(BOOTSTRAP_SESSION)).toBe(true);
     } finally {
@@ -1225,6 +1498,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_shutdown")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION, _retained: false });
@@ -1358,6 +1632,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_before_switch")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1373,16 +1648,164 @@ describe("real entrypoint bootstrap", () => {
     removePendingFlag(BOOTSTRAP_SESSION);
   });
 
-  it("invalid config: session_shutdown does not throw and skips flush without clearing queue", async () => {
-    // Invalid config: apiUrl and apiKey empty → validation fails, client is null
+  it("invalid config fails fast while keeping diagnostic commands", async () => {
+    // Invalid config (apiUrl and apiKey empty) → validation fails → fail-fast
+    // mode. No tools, client, or flush/retain handlers are registered; only the
+    // recall filter/renderer, unhealthy session_start indicator, and read-only
+    // /hindsight diagnostics remain available.
     activeConfig = { ...testConfig, apiUrl: "", apiKey: "" };
 
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
 
-    const handler = pi.handlers.get("session_shutdown")!;
-    const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
+    const handlerNames = [...pi.handlers.keys()];
+    expect(handlerNames).toContain("session_start");
+    expect(handlerNames).toContain("context");
+    // No flush/retain/switch/shutdown/compact handlers in fail-fast disabled mode.
+    expect(pi.handlers.has("session_shutdown")).toBe(false);
+    expect(pi.handlers.has("session_before_switch")).toBe(false);
+    expect(pi.handlers.has("session_before_fork")).toBe(false);
+    expect(pi.handlers.has("session_before_tree")).toBe(false);
+    expect(pi.handlers.has("session_compact")).toBe(false);
+    expect(pi.handlers.has("before_agent_start")).toBe(false);
+    expect(pi.handlers.has("message_end")).toBe(false);
+
+    // No tools are registered, but /hindsight remains available for status/config.
+    expect(pi.tools).toHaveLength(0);
+    expect(pi.commands.has("hindsight")).toBe(true);
+    expect(pi.setActiveToolsCalls).toHaveLength(0);
+
+    // Recall renderer still registered so persisted recall messages display/filter.
+    expect(pi.renderers.has("hindsight-recall")).toBe(true);
+  });
+
+  it("invalid config: session_start sets unhealthy status with no metadata/state/queue side effects", async () => {
+    // Regression: previously session_start would auto-create hindsight-meta
+    // (appending an entry + writing session-state) before the hasUsableConfig
+    // check. In fail-fast mode it must only set the unhealthy status.
+    activeConfig = { ...testConfig, apiUrl: "", apiKey: "" };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { readSessionState } =
+      require("../src/session-state") as typeof import("../src/session-state");
+    const { removePendingFlag, clearSessionQueueState, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+
+    // No existing hindsight-meta entries: the old code would auto-create
+    // {retained: ...} metadata here before bailing on invalid config.
+    const ctx = createMockContext({
+      _sessionId: sessionId,
+      sessionManager: {
+        ...createMockContext({ _sessionId: sessionId }).sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+    const handler = pi.handlers.get("session_start")!;
+    await handler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+
+    // No session metadata appended.
+    expect(pi.appendedEntries).toHaveLength(0);
+    // No live session-state file written.
+    expect(readSessionState(sessionId)).toBeNull();
+    // No pending marker / queue writes, and no tool-visibility mutation.
+    expect(hasPendingFlag(sessionId)).toBe(false);
+    expect(pi.setActiveToolsCalls).toHaveLength(0);
+
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+  });
+
+  it("invalid config: diagnostic commands explain missing observationScopes", async () => {
+    activeConfig = { ...testConfig, observationScopes: null };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const statusCtx = createMockContext();
+    await commandHandler("status", statusCtx);
+    const statusMessages = (statusCtx.ui.notify as ReturnType<typeof mock>).mock.calls.map(
+      (c: unknown[]) => String(c[0])
+    );
+    expect(statusMessages.some((m: string) => m.includes("== Connection =="))).toBe(true);
+    expect(statusMessages.some((m: string) => m.includes("not checked: config invalid"))).toBe(
+      true
+    );
+
+    const configCtx = createMockContext();
+    await commandHandler("config", configCtx);
+    const configMessages = (configCtx.ui.notify as ReturnType<typeof mock>).mock.calls.map(
+      (c: unknown[]) => String(c[0])
+    );
+    expect(configMessages.some((m: string) => m.includes("observationScopes is required"))).toBe(
+      true
+    );
+  });
+
+  it("invalid config: toggle-display updates persisted recall rendering", async () => {
+    activeConfig = {
+      ...testConfig,
+      observationScopes: null,
+      autoRecallPersist: true,
+      autoRecallDisplay: false,
+    };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const renderer = pi.renderers.get("hindsight-recall") as (
+      message: Record<string, unknown>,
+      options: { expanded: boolean },
+      theme: Record<string, unknown>
+    ) => { render: (width: number) => string[] } | undefined;
+    const details = { count: 1, snippet: "test", memories: "test memory" };
+    const mockTheme = {
+      fg: (_color: unknown, text: string) => text,
+      bg: (_color: unknown, text: string) => text,
+    };
+    const component = renderer({ details }, { expanded: false }, mockTheme);
+    expect(component).toBeDefined();
+    expect(component!.render(80)).toHaveLength(0);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+    await commandHandler("toggle-display", createMockContext());
+
+    const lines = component!.render(80);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join("\n")).toContain("Hindsight recalled");
+  });
+
+  it("invalid config: pending markers survive lifecycle events (no flush handlers registered)", async () => {
+    // Fail-fast disabled mode registers no flush handlers, so a pre-existing
+    // pending marker is preserved across lifecycle events — data is not lost
+    // and no flush is attempted with an invalid config.
+    activeConfig = { ...testConfig, apiUrl: "", apiKey: "" };
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
 
     const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
       require("../src/queue") as typeof import("../src/queue");
@@ -1390,41 +1813,37 @@ describe("real entrypoint bootstrap", () => {
     await touchPendingFlag(BOOTSTRAP_SESSION);
     expect(hasPendingFlag(BOOTSTRAP_SESSION)).toBe(true);
 
-    // Should not throw
-    await handler({ type: "session_shutdown", reason: "quit" }, ctx);
-
-    // Queue should still be intact — flush was skipped due to invalid config
+    // No session_shutdown / session_before_switch handlers exist to run.
+    expect(pi.handlers.has("session_shutdown")).toBe(false);
+    expect(pi.handlers.has("session_before_switch")).toBe(false);
+    // Pending marker stays intact.
     expect(hasPendingFlag(BOOTSTRAP_SESSION)).toBe(true);
-    // Auto-flushes suppress notifications for invalid config (transient, not useful)
 
     removePendingFlag(BOOTSTRAP_SESSION);
   });
 
-  it("invalid config: session_before_switch does not throw and skips flush without clearing queue", async () => {
-    // Invalid config: apiUrl and apiKey empty → validation fails, client is null
-    activeConfig = { ...testConfig, apiUrl: "", apiKey: "" };
+  it("invalid config: logs validation errors to console", async () => {
+    activeConfig = { ...testConfig, apiUrl: "", apiKey: "", bankId: "" };
 
     const pi = createMockPi();
     const extension = await import("../src/index");
-    extension.default(pi);
 
-    const handler = pi.handlers.get("session_before_switch")!;
-    const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
+    const errorCalls: string[] = [];
+    const originalError = console.error;
+    console.error = (msg: unknown) => {
+      errorCalls.push(String(msg));
+    };
+    try {
+      extension.default(pi);
+    } finally {
+      console.error = originalError;
+    }
 
-    const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
-      require("../src/queue") as typeof import("../src/queue");
-    removePendingFlag(BOOTSTRAP_SESSION);
-    await touchPendingFlag(BOOTSTRAP_SESSION);
-    expect(hasPendingFlag(BOOTSTRAP_SESSION)).toBe(true);
-
-    // Should not throw
-    await handler({ type: "session_before_switch" }, ctx);
-
-    // Queue should still be intact — flush was skipped due to invalid config
-    expect(hasPendingFlag(BOOTSTRAP_SESSION)).toBe(true);
-    // Auto-flushes suppress notifications for invalid config (transient, not useful)
-
-    removePendingFlag(BOOTSTRAP_SESSION);
+    // Validation errors for each missing required field are reported so the
+    // user knows why the extension is disabled.
+    expect(errorCalls.some((m) => m.includes("apiUrl is required"))).toBe(true);
+    expect(errorCalls.some((m) => m.includes("apiKey is required"))).toBe(true);
+    expect(errorCalls.some((m) => m.includes("bankId is required"))).toBe(true);
   });
 
   it("session_start creates default metadata without rewriting the parsed .meta.json artifact", async () => {
@@ -1502,6 +1921,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_before_fork")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1530,6 +1950,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_before_tree")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1599,6 +2020,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1683,6 +2105,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1725,6 +2148,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION, _retained: false });
@@ -1780,6 +2204,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION, _retained: false });
@@ -1835,6 +2260,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1890,6 +2316,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -1931,6 +2358,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -2012,6 +2440,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("session_compact")!;
     const ctx = createMockContext({ _sessionId: BOOTSTRAP_SESSION });
@@ -2062,7 +2491,7 @@ describe("real entrypoint bootstrap", () => {
     const ctx = createMockContext();
     await handler({ type: "session_start" }, ctx);
 
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
   });
 
   it("session_start handler sets unhealthy status when config is invalid", async () => {
@@ -2077,7 +2506,7 @@ describe("real entrypoint bootstrap", () => {
     await handler({ type: "session_start" }, ctx);
 
     // Should set unhealthy without calling healthCheck
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🤯");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
   });
 
   it("session_start handler sets healthy status when config has load warnings but server is reachable", async () => {
@@ -2092,7 +2521,7 @@ describe("real entrypoint bootstrap", () => {
     await handler({ type: "session_start" }, ctx);
 
     // Load warnings are cosmetic; server is reachable → healthy
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("pi-hindsight", "🧠");
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🧠");
   });
 
   it("before_agent_start handler returns recall message when autoRecallPersist is true", async () => {
@@ -2113,6 +2542,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext({
@@ -2159,6 +2589,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext({
@@ -2198,6 +2629,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const ctxBas = createMockContext({
@@ -2260,6 +2692,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const ctxBas = createMockContext({
@@ -2303,6 +2736,225 @@ describe("real entrypoint bootstrap", () => {
   });
 
   // ============================================
+  // first-turn readiness ordering regression (integration)
+  // ============================================
+  //
+  // The before_agent_start readiness gate used to hard-block on isStartupReady(),
+  // which skipped auto-recall on the first message whenever the first healthy
+  // session_start hadn't latched readiness yet at the time before_agent_start
+  // fired (e.g. the startup probe was still pending, or it failed transiently
+  // and the server has since recovered). The handler now verifies health on
+  // demand when readiness isn't latched — latching + recalling on a healthy
+  // server, skipping cleanly on a genuinely-down/incompatible one. These tests
+  // deliberately do NOT call runHealthySessionStart() first, so they exercise
+  // the real first-turn ordering rather than masking it with a pre-latched
+  // readiness.
+
+  it("before_agent_start recalls on the first turn even before a healthy session_start has latched readiness", async () => {
+    // Healthy server. Readiness is NOT pre-latched (no runHealthySessionStart).
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() =>
+        Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "First-turn memory" }] },
+        })
+      ),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    expect(isStartupReady()).toBe(false);
+
+    // First turn: no healthy session_start yet. before_agent_start must
+    // establish health/version readiness on demand (so recall is allowed even
+    // before a healthy session_start has latched it), then recall using
+    // event.prompt. It deliberately does NOT initialize session metadata/tools/
+    // retain visibility — that stays owned by session_start (which will run on
+    // the real lifecycle event). Here we only assert recall works from
+    // event.prompt despite empty entries.
+    const basHandler = pi.handlers.get("before_agent_start")!;
+    const ctxBas = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => []), // First message — no entries yet
+      },
+    });
+    await basHandler({ type: "before_agent_start", prompt: "Hello from first turn" }, ctxBas);
+
+    // Readiness was latched by the on-demand health/version establish.
+    expect(isStartupReady()).toBe(true);
+
+    // Recall ran (query from event.prompt despite empty entries): the context
+    // handler re-injects the cached memory.
+    const contextHandler = pi.handlers.get("context")!;
+    const contextResult = (await contextHandler(
+      {
+        type: "context",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Hello from first turn" }],
+            customType: undefined,
+          },
+        ],
+      },
+      createMockContext()
+    )) as Record<string, unknown> | undefined;
+    expect(contextResult).toBeDefined();
+    const messages = contextResult?.messages as Array<{ role?: string; content?: unknown }>;
+    const recallMsg = messages.find(
+      (m) => typeof m.content === "string" && m.content.includes("First-turn memory")
+    );
+    expect(recallMsg).toBeDefined();
+    expect(recallMsg?.content).toContain("First-turn memory");
+  });
+
+  it("before_agent_start skips recall when the first-turn health check genuinely fails (safety preserved)", async () => {
+    // Server is genuinely unreachable — health check fails on the on-demand
+    // verify too. Recall must be skipped and readiness must NOT latch.
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "Connection refused" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() =>
+        Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "should not be used" }] },
+        })
+      ),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    expect(isStartupReady()).toBe(false);
+
+    const basHandler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext();
+    await basHandler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+    // Readiness was NOT latched (on-demand verify failed).
+    expect(isStartupReady()).toBe(false);
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    // Safety: no operational init ran on the failed probe — no metadata, no
+    // tools, no recall. (Health/version readiness gated recall here; session
+    // init is session_start-owned and a healthy session_start never ran.)
+    expect(pi.appendedEntries.filter((e) => e.customType === "hindsight-meta")).toHaveLength(0);
+    expect(pi.tools.filter((t) => t.name.startsWith("hindsight_"))).toHaveLength(0);
+
+    // Recall was skipped: no memory is available for the context handler to
+    // re-inject (the returned messages are the original user message only).
+    const contextHandler = pi.handlers.get("context")!;
+    const contextResult = (await contextHandler(
+      {
+        type: "context",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Hello" }],
+            customType: undefined,
+          },
+        ],
+      },
+      createMockContext()
+    )) as Record<string, unknown> | undefined;
+    const messages = (contextResult?.messages ?? []) as Array<{ content?: unknown }>;
+    const leaked = messages.find(
+      (m) => typeof m.content === "string" && m.content.includes("should not be used")
+    );
+    expect(leaked).toBeUndefined();
+  });
+
+  it("ensureStartupReady is single-flight: overlapping session_start and before_agent_start share one probe pass", async () => {
+    // If session_start and before_agent_start both try to establish readiness
+    // concurrently (before the first latch), they must join the same in-flight
+    // health/version probe rather than running duplicate/concurrent probes.
+    // (`ensureStartupReady` does health/version readiness only; session init is
+    // owned by session_start. The init-once assertions below cover session_start's
+    // path, which the winning — healthy — readiness attempt then runs into.)
+    let probeCount = 0;
+    let resolveHealth: (v: { success: boolean }) => void = () => {};
+    activeClientFactory = () => ({
+      healthCheck: mock(() => {
+        probeCount += 1;
+        return new Promise<{ success: boolean }>((resolve) => {
+          resolveHealth = resolve;
+        });
+      }),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() =>
+        Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "single-flight memory" }] },
+        })
+      ),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const startHandler = pi.handlers.get("session_start")!;
+    const basHandler = pi.handlers.get("before_agent_start")!;
+
+    // Both ctxs return no existing hindsight-meta so the single shared probe's
+    // session_start winner always appends exactly one (deterministic regardless
+    // of which caller wins).
+    const ctxNoMeta = () =>
+      createMockContext({
+        sessionManager: {
+          ...createMockContext().sessionManager,
+          getEntries: mock(() => []),
+        },
+      });
+
+    // Kick off both WITHOUT awaiting, so both see isStartupReady()===false and
+    // both try to establish readiness before the first one completes.
+    const startPromise = startHandler({ type: "session_start" }, ctxNoMeta());
+    const basPromise = basHandler({ type: "before_agent_start", prompt: "overlap" }, ctxNoMeta());
+
+    // Let the microtask queue settle so both callers have entered their
+    // ensureStartupReady() (first sets the promise, second joins it).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Only ONE health probe should be in flight (single-flight shared).
+    expect(probeCount).toBe(1);
+
+    // Resolve the single probe healthy → both promises resolve ready.
+    resolveHealth({ success: true });
+    await Promise.all([startPromise, basPromise]);
+
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    expect(isStartupReady()).toBe(true);
+    // Session init ran exactly once (via session_start, after readiness): only
+    // one hindsight-meta append and one set of tools. before_agent_start does no
+    // session init, so the dedupe is of the health/version probe above.
+    expect(pi.appendedEntries.filter((e) => e.customType === "hindsight-meta")).toHaveLength(1);
+    expect(pi.tools.filter((t) => t.name === "hindsight_retain").length).toBe(1);
+    // Only the single in-flight probe ran throughout (no duplicate re-probe).
+    expect(probeCount).toBe(1);
+  });
+
+  // ============================================
   // autoRecallPersist context filtering regression (integration)
   // ============================================
   //
@@ -2332,6 +2984,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const contextHandler = pi.handlers.get("context")!;
@@ -2466,6 +3119,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const contextHandler = pi.handlers.get("context")!;
@@ -2539,6 +3193,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const contextHandler = pi.handlers.get("context")!;
@@ -2613,6 +3268,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const basHandler = pi.handlers.get("before_agent_start")!;
     const contextHandler = pi.handlers.get("context")!;
@@ -2863,6 +3519,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext({
@@ -2910,6 +3567,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext({
@@ -2938,7 +3596,7 @@ describe("real entrypoint bootstrap", () => {
     };
 
     // Create a temp parent session file that extractParentSessionId can read
-    const parentDir = join(tmpdir(), "pi-hindsight-parent-test");
+    const parentDir = join(tmpdir(), "epimetheus-parent-test");
     mkdirSync(parentDir, { recursive: true });
     const parentId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const parentPath = join(parentDir, `${parentId}.jsonl`);
@@ -2963,6 +3621,7 @@ describe("real entrypoint bootstrap", () => {
       const pi = createMockPi();
       const extension = await import("../src/index");
       extension.default(pi);
+      await runHealthySessionStart(pi);
 
       const handler = pi.handlers.get("before_agent_start")!;
       const ctx = createMockContext({
@@ -3051,6 +3710,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext({
@@ -3095,8 +3755,9 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    // setActiveTools should have been called to remove hindsight_retain
-    expect(pi.setActiveToolsCalls.length).toBeGreaterThan(0);
+    // Tools are registered lazily on the healthy startup; hindsight_retain is
+    // then removed from active tools because the session is not retained.
+    expect(pi.getActiveTools()).not.toContain("hindsight_retain");
     const lastCall = pi.setActiveToolsCalls[pi.setActiveToolsCalls.length - 1]!;
     expect(lastCall).not.toContain("hindsight_retain");
   });
@@ -3116,8 +3777,9 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    // setActiveTools should NOT have been called (tool is already active by default)
-    expect(pi.setActiveToolsCalls.length).toBe(0);
+    // Lazy registration auto-activates the tool, and retention is true so it
+    // is not removed. hindsight_retain is present in the active tools.
+    expect(pi.getActiveTools()).toContain("hindsight_retain");
   });
 
   it("session_start respects existing retained=false metadata", async () => {
@@ -3136,13 +3798,13 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    // setActiveTools should have been called to remove hindsight_retain
-    expect(pi.setActiveToolsCalls.length).toBeGreaterThan(0);
+    // hindsight_retain is registered lazily then removed because retained=false.
+    expect(pi.getActiveTools()).not.toContain("hindsight_retain");
     const lastCall = pi.setActiveToolsCalls[pi.setActiveToolsCalls.length - 1]!;
     expect(lastCall).not.toContain("hindsight_retain");
   });
 
-  it("session_start does not call updateRetainToolVisibility when retain tool is not in toolsEnabled array", async () => {
+  it("session_start does not touch hindsight_retain visibility when retain tool is not in toolsEnabled array", async () => {
     activeConfig = { ...testConfig, toolsEnabled: ["recall" as const] };
 
     const pi = createMockPi();
@@ -3158,8 +3820,111 @@ describe("real entrypoint bootstrap", () => {
     const handler = pi.handlers.get("session_start")!;
     await handler({ type: "session_start" }, ctx);
 
-    // setActiveTools should NOT have been called — retain tool isn't registered
-    expect(pi.setActiveToolsCalls.length).toBe(0);
+    // The retain tool was never registered (toolsEnabled=["recall"]), so it
+    // can never be active and updateRetainToolVisibility was never called for it.
+    expect(pi.getActiveTools()).not.toContain("hindsight_retain");
+    const allTouchedNames = pi.setActiveToolsCalls.flat();
+    expect(allTouchedNames).not.toContain("hindsight_retain");
+  });
+
+  it("session_start still updates retain visibility for a later session after readiness is already latched", async () => {
+    // readiness is a global latch, but session work (metadata creation + retain
+    // visibility) is owned by session_start and must run on EVERY session_start,
+    // not just the first. A second session_start (e.g. /new) after readiness is
+    // already true must still auto-create hindsight-meta for that session if
+    // absent and set hindsight_retain visibility per that session's retain state.
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    const handler = pi.handlers.get("session_start")!;
+
+    // First session_start, retained=true → readiness latches, meta created,
+    // hindsight_retain active.
+    const firstCtx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+    await handler({ type: "session_start" }, firstCtx);
+    expect(isStartupReady()).toBe(true);
+    const appendedAfterFirst = pi.appendedEntries.filter(
+      (e) => e.customType === "hindsight-meta"
+    ).length;
+    expect(appendedAfterFirst).toBe(1);
+    expect(pi.getActiveTools()).toContain("hindsight_retain");
+
+    // Later session_start whose session already has retained=false metadata.
+    // Readiness is already latched, but the per-session retain-visibility work
+    // must still run: hindsight_retain is hidden for this (non-retained) session.
+    // config.retainSessionsByDefault stays true (captured at default() time), so
+    // we exercise visibility via EXISTING retained=false meta rather than a new
+    // auto-created one — proving the visibility update is per-session.
+    const laterCtx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => [
+          { type: "custom", customType: "hindsight-meta", data: { retained: false } },
+        ]),
+      },
+    });
+    await handler({ type: "session_start" }, laterCtx);
+    // Readiness unchanged (still latched).
+    expect(isStartupReady()).toBe(true);
+    // Existing retained=false meta was respected → no new meta appended.
+    expect(pi.appendedEntries.filter((e) => e.customType === "hindsight-meta").length).toBe(
+      appendedAfterFirst
+    );
+    // retain visibility updated for this session (hidden because retained=false).
+    expect(pi.getActiveTools()).not.toContain("hindsight_retain");
+  });
+
+  it("session_start still auto-creates metadata for a later session after readiness is already latched", async () => {
+    // Companion to the above: when a later session_start (readiness already
+    // latched) has NO existing metadata, the per-session affordance still runs —
+    // a new hindsight-meta is auto-created (using retainSessionsByDefault, here
+    // true). This is the case readiness-as-latch risked skipping before the fix.
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    const handler = pi.handlers.get("session_start")!;
+
+    // First session_start → readiness latches, first meta created.
+    const firstCtx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+    await handler({ type: "session_start" }, firstCtx);
+    expect(isStartupReady()).toBe(true);
+    const appendedAfterFirst = pi.appendedEntries.filter(
+      (e) => e.customType === "hindsight-meta"
+    ).length;
+    expect(appendedAfterFirst).toBe(1);
+
+    // Later session_start with no existing meta → still creates one for this session.
+    const laterCtx = createMockContext({
+      sessionManager: {
+        ...createMockContext().sessionManager,
+        getEntries: mock(() => []),
+      },
+    });
+    await handler({ type: "session_start" }, laterCtx);
+    expect(isStartupReady()).toBe(true);
+    expect(pi.appendedEntries.filter((e) => e.customType === "hindsight-meta").length).toBe(
+      appendedAfterFirst + 1
+    );
+    expect(pi.appendedEntries[pi.appendedEntries.length - 1]).toEqual({
+      customType: "hindsight-meta",
+      data: { retained: true },
+    });
   });
 
   it("toggle-retain on restores hindsight_retain tool visibility after session_start hid it", async () => {
@@ -3288,6 +4053,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
@@ -3338,6 +4104,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState } =
@@ -3382,6 +4149,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState } =
@@ -3440,6 +4208,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag, touchPendingFlag } =
@@ -3482,6 +4251,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, clearSessionQueueState, hasPendingFlag, touchPendingFlag } =
@@ -3542,6 +4312,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const sessionId = BOOTSTRAP_SESSION;
     const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
@@ -3651,5 +4422,290 @@ describe("real entrypoint bootstrap", () => {
     } finally {
       removePendingFlag(sessionId);
     }
+  });
+
+  // ============================================
+  // Startup readiness: tools hidden until healthy startup, operational commands gated
+  // ============================================
+
+  it("startupReady is false before a healthy session_start (operational handlers skip)", async () => {
+    // With a failing health check, session_start leaves startupReady=false.
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    // _resetState (called in afterEach) sets startupReady=false; confirm the
+    // default before any session_start.
+    expect(isStartupReady()).toBe(false);
+
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "down" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    // Before any session_start, readiness is false.
+    expect(isStartupReady()).toBe(false);
+    // A failed session_start keeps it false.
+    const startHandler = pi.handlers.get("session_start")!;
+    await startHandler({ type: "session_start" }, createMockContext());
+    expect(isStartupReady()).toBe(false);
+  });
+
+  it("no hindsight tools are registered before the first healthy session_start; tools register and activate after healthy startup", async () => {
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    // Tools are not registered at extension init — none exist before a healthy
+    // session_start, so none can be active.
+    expect(pi.tools).toHaveLength(0);
+    expect(pi.getActiveTools().filter((n) => n.startsWith("hindsight_"))).toEqual([]);
+
+    // After a healthy session_start, the configured hindsight tools are
+    // registered and auto-activate via refreshTools.
+    await runHealthySessionStart(pi);
+    const activeHindsight = pi.getActiveTools().filter((n) => n.startsWith("hindsight_"));
+    // Default toolsEnabled=true → retain, recall, reflect (+ set/get_extra_context) registered.
+    expect(activeHindsight).toContain("hindsight_retain");
+    expect(activeHindsight).toContain("hindsight_recall");
+  });
+
+  it("a failed (unhealthy) session_start registers no hindsight tools and performs no side effects", async () => {
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: false, error: "down" })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    // Capture pre-handler state to prove the handler performs no writes.
+    const sessionId = BOOTSTRAP_SESSION;
+    const { readSessionState } =
+      require("../src/session-state") as typeof import("../src/session-state");
+    const { removePendingFlag, clearSessionQueueState, hasPendingFlag, touchPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+    await touchPendingFlag(sessionId);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    const ctx = createMockContext({ _sessionId: sessionId });
+    const startHandler = pi.handlers.get("session_start")!;
+    await startHandler({ type: "session_start" }, ctx);
+
+    expect(ctx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    // No hindsight tools registered, none active.
+    expect(pi.tools).toHaveLength(0);
+    expect(pi.getActiveTools().filter((n) => n.startsWith("hindsight_"))).toEqual([]);
+    // No operational side effects: no metadata appended, no session-state
+    // written, no tool-visibility mutation, no flush-pending drain.
+    expect(pi.appendedEntries).toHaveLength(0);
+    expect(readSessionState(sessionId)).toBeNull();
+    expect(pi.setActiveToolsCalls).toHaveLength(0);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    cleanupParsedArtifacts(sessionId);
+  });
+
+  it("a later failed session_start after a healthy one does not turn readiness off or re-hide tools", async () => {
+    // Latch invariant: once the first healthy startup completes, readiness is
+    // true and is never flipped back to false by later session_start failures.
+    // A later failure still sets the status-bar indicator unhealthy, but must
+    // NOT re-disable operational handlers or re-hide tools.
+    const { isStartupReady } =
+      require("../src/runtime-state") as typeof import("../src/runtime-state");
+    let healthSuccess = true;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: healthSuccess })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const startHandler = pi.handlers.get("session_start")!;
+    const healthyCtx = createMockContext();
+
+    // First start: healthy → readiness latches on, tools registered lazily.
+    await startHandler({ type: "session_start" }, healthyCtx);
+    expect(isStartupReady()).toBe(true);
+    const activeAfterHealthy = pi.getActiveTools().filter((n) => n.startsWith("hindsight_"));
+    expect(activeAfterHealthy).toContain("hindsight_retain");
+    expect(healthyCtx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🧠");
+
+    // Now a later session_start fails (server became unreachable).
+    healthSuccess = false;
+    const failingCtx = createMockContext();
+    await startHandler({ type: "session_start" }, failingCtx);
+
+    // Readiness stays on (latch not flipped back).
+    expect(isStartupReady()).toBe(true);
+    // The later failure set the status-bar indicator unhealthy...
+    expect(failingCtx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    // ...but tools were NOT unregistered or re-hidden (still registered/active
+    // from the healthy startup).
+    const activeAfterFailure = pi.getActiveTools().filter((n) => n.startsWith("hindsight_"));
+    expect(activeAfterFailure).toEqual(activeAfterHealthy);
+    expect(activeAfterFailure).toContain("hindsight_retain");
+
+    // Operational handlers still run after the later failure (readiness on).
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    const messageEndHandler = pi.handlers.get("message_end")!;
+    const retainCtx = createMockContext({ _sessionId: sessionId });
+    await messageEndHandler(
+      { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Hi" }] } },
+      retainCtx
+    );
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+  });
+
+  it("startup auto-flush skips when a latched session_start refresh probe fails", async () => {
+    // Readiness is one-way, so a later failed probe should not undo metadata or
+    // tool visibility work. Startup auto-flush is different: it is automatic
+    // network work, so skip it when this same session_start just observed the
+    // server as unhealthy.
+    activeConfig = { ...testConfig, autoFlushPendingOn: ["startup"] };
+    let healthSuccess = true;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: healthSuccess })),
+      getServerVersion: mock(() => Promise.resolve({ success: true, version: "0.9.0" })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock(() => Promise.resolve({ success: true, response: { results: [] } })),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const startHandler = pi.handlers.get("session_start")!;
+    await startHandler({ type: "session_start", reason: "startup" }, createMockContext());
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, clearSessionQueueState, touchPendingFlag, hasPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+    await touchPendingFlag(sessionId);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    healthSuccess = false;
+    const failingCtx = createMockContext({ _sessionId: sessionId });
+    await startHandler({ type: "session_start", reason: "startup" }, failingCtx);
+
+    expect(failingCtx.ui.setStatus).toHaveBeenCalledWith("epimetheus", "🤯");
+    const notifyMessages = (failingCtx.ui.notify as ReturnType<typeof mock>).mock.calls.map(
+      (c: unknown[]) => String(c[0])
+    );
+    expect(notifyMessages.some((m: string) => m.includes("session file not found"))).toBe(false);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+    clearSessionQueueState(sessionId);
+  });
+
+  it("operational subcommand is blocked with an unavailable message and no side effects when not ready", async () => {
+    // No healthy session_start → not ready → operational subcommands blocked.
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const sessionId = BOOTSTRAP_SESSION;
+    const { removePendingFlag, hasPendingFlag, touchPendingFlag } =
+      require("../src/queue") as typeof import("../src/queue");
+    removePendingFlag(sessionId);
+    await touchPendingFlag(sessionId);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    const ctx = createMockContext({ _sessionId: sessionId });
+    await commandHandler("flush", ctx);
+
+    const notifyCalls = (ctx.ui.notify as ReturnType<typeof mock>).mock.calls;
+    const messages = notifyCalls.map((c: unknown[]) => String(c[0]));
+    expect(messages.some((m: string) => m.includes("not ready"))).toBe(true);
+    // No flush ran — the pending marker survives.
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    // Dedup: a second blocked operational command must not repeat the warning.
+    const ctx2 = createMockContext({ _sessionId: sessionId });
+    await commandHandler("flush", ctx2);
+    const notifyCalls2 = (ctx2.ui.notify as ReturnType<typeof mock>).mock.calls;
+    expect(notifyCalls2.length).toBe(0);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    // _resetState() should also reset the command module's warning dedupe state
+    // for tests that reset without re-registering commands.
+    const { _resetState } = require("../src/index") as typeof import("../src/index");
+    _resetState();
+    const ctx3 = createMockContext({ _sessionId: sessionId });
+    await commandHandler("flush", ctx3);
+    const notifyCalls3 = (ctx3.ui.notify as ReturnType<typeof mock>).mock.calls;
+    expect(
+      notifyCalls3.map((c: unknown[]) => String(c[0])).some((m) => m.includes("not ready"))
+    ).toBe(true);
+    expect(hasPendingFlag(sessionId)).toBe(true);
+
+    removePendingFlag(sessionId);
+  });
+
+  it("diagnostic subcommands (status, config) work even when not ready", async () => {
+    // No healthy session_start → not ready, but status/config remain available.
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+
+    const commandHandler = (
+      pi.commands.get("hindsight") as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      }
+    ).handler;
+
+    const statusCtx = createMockContext();
+    await commandHandler("status", statusCtx);
+    const statusMessages = (statusCtx.ui.notify as ReturnType<typeof mock>).mock.calls.map(
+      (c: unknown[]) => String(c[0])
+    );
+    expect(statusMessages.some((m: string) => m.includes("== Connection =="))).toBe(true);
+    expect(statusMessages.some((m: string) => m.includes("not ready"))).toBe(false);
+
+    const configCtx = createMockContext();
+    await commandHandler("config", configCtx);
+    const configMessages = (configCtx.ui.notify as ReturnType<typeof mock>).mock.calls.map(
+      (c: unknown[]) => String(c[0])
+    );
+    expect(configMessages.some((m: string) => m.includes("== Config Source =="))).toBe(true);
+    expect(configMessages.some((m: string) => m.includes("not ready"))).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 # Reference
 
-Detailed configuration, tools, commands, and operational details for pi-hindsight. For getting started, see the [main README](../README.md).
+Detailed configuration, tools, commands, and operational details for epimetheus. For getting started, see the [main README](../README.md).
 
 # Table of Contents
 - [Configuration](#configuration)
@@ -33,7 +33,7 @@ Detailed configuration, tools, commands, and operational details for pi-hindsigh
 - [Known Package Interactions](#known-package-interactions)
 
 # Configuration
-Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json` or `config.jsonc` (JSONC has precedence). See the [Example Configuration](../README.md#example-configuration) in the main README for a practical starting point.
+Configuration is stored in `<getAgentDir()>/epimetheus/config.json` or `config.jsonc` (JSONC has precedence). See the [Example Configuration](../README.md#example-configuration) in the main README for a practical starting point.
 
 ## General Settings
 
@@ -56,7 +56,7 @@ Configuration is stored in `<getAgentDir()>/extensions/pi-hindsight/config.json`
 | `debug` | `false` | Enable debug mode. Logs parse pipeline timing to console and shows auto-flush block notifications that are otherwise suppressed. See [Debug Mode](#debug-mode). |
 
 ### Disabled Mode
-When `enabled: false`, pi-hindsight runs in a lightweight disabled mode. No tools, commands, API client, auto-recall, auto-retain, or status indicator are registered. However, two things are still handled:
+When `enabled: false`, epimetheus runs in a lightweight disabled mode. No tools, commands, API client, auto-recall, auto-retain, or status indicator are registered. However, two things are still handled:
 
 1. **Context filtering**: `hindsight-recall` custom messages are filtered from the LLM context, preventing stale recall messages from being sent to the model. This only matters for sessions where `autoRecallPersist` was enabled (the default is false) and those sessions are resumed.
 
@@ -64,19 +64,19 @@ When `enabled: false`, pi-hindsight runs in a lightweight disabled mode. No tool
    - **`autoRecallDisplay: true`** — Persisted recall messages render with their formatted content (collapsed/expanded), so they display nicely in the TUI even though the extension is disabled.
    - **`autoRecallDisplay: false`** (default) — The renderer hides recall messages from the chat (returns empty lines), preventing raw custom message data from appearing.
 
-> **Note:** When disabled, the `/hindsight toggle-display` command is not available, so `autoRecallDisplay` can only be controlled via the config file or `PI_HINDSIGHT_AUTO_RECALL_DISPLAY` environment variable.
+> **Note:** When disabled, the `/hindsight toggle-display` command is not available, so `autoRecallDisplay` can only be controlled via the config file or `EPIMETHEUS_AUTO_RECALL_DISPLAY` environment variable.
 
 This ensures that disabling the extension does not leave stale data in your sessions — recall messages are both filtered from the LLM context and properly rendered (or hidden) in the UI.
 
 **If you stop using Hindsight entirely** and have sessions with persisted recall entries, you have two options:
-1. Keep pi-hindsight installed with `enabled: false` (this disabled mode) — recall messages will continue to be filtered from context and rendered/hidden in the UI
-2. Uninstall pi-hindsight and manually remove all `hindsight-recall` entries from your session files — without the extension, `custom_message` entries would otherwise be sent to the LLM as regular user messages (`hindsight-meta` entries are safe to leave since they are `custom` entries, not messages, and won't appear in the LLM context)
+1. Keep epimetheus installed with `enabled: false` (this disabled mode) — recall messages will continue to be filtered from context and rendered/hidden in the UI
+2. Uninstall epimetheus and manually remove all `hindsight-recall` entries from your session files — without the extension, `custom_message` entries would otherwise be sent to the LLM as regular user messages (`hindsight-meta` entries are safe to leave since they are `custom` entries, not messages, and won't appear in the LLM context)
 
 > **Pi limitation:** The core issue is that pi has no way to render `custom_message` entries as UI-only (without sending them to the LLM), nor does it support rendering `custom` entries at all. If either were supported, the `autoRecallPersist` tradeoff would disappear — recall could be stored as display-only data that never enters the LLM context. Pi sessions are supposed to be append-only, so while you could technically delete or update these old entries, I won't support that as part of this extension directly.
 
 ### Debug Mode
 
-When `debug: true` (or `PI_HINDSIGHT_DEBUG=true`), pi-hindsight enables additional diagnostic output:
+When `debug: true` (or `EPIMETHEUS_DEBUG=true`), epimetheus enables additional diagnostic output:
 
 - **Parse pipeline timing**: Logs `performance.now()` timing for `parseSessionFile` and `buildMessageArrayFromParsedSession` to the console
 - **Auto-flush block notifications**: Block notifications ("Session does not allow retention", "extra context not set") are suppressed during most auto-flushes since they are transient and not useful. In debug mode, these are always shown. The one exception is `/quit` (the final chance before exit):
@@ -131,7 +131,7 @@ When `autoRecallPersist: false` (default):
 - The most recent recall is available via `/hindsight popup`
 - `autoRecallDisplay: true` has no effect on new messages (memories are not stored and cannot be shown in chat) but still affects rendering of any previously persisted recall messages
 
-If you stop using Hindsight and have sessions with persisted recall entries, you can keep pi-hindsight installed with `enabled: false` to continue filtering them from context, or manually remove them from session files. See [Disabled Mode](#disabled-mode) for details and the underlying pi limitation.
+If you stop using Hindsight and have sessions with persisted recall entries, you can keep epimetheus installed with `enabled: false` to continue filtering them from context, or manually remove them from session files. See [Disabled Mode](#disabled-mode) for details and the underlying pi limitation.
 
 ## Status Bar Indicator
 The extension shows a health indicator in pi's status bar:
@@ -146,7 +146,7 @@ Session retention has two config settings that serve distinct purposes:
 - **`retainSessionsByDefault`** (default: `true`) — determines the `retained` state for sessions that don't have metadata. When a session starts and has no hindsight metadata, a metadata entry is automatically created with `retained` set to this value.
 - **`autoRetainEnabled`** (default: `true`) — controls whether messages are automatically queued on `message_end`. When disabled, no new messages enter the auto-queue, so there is nothing for the flush handlers to send (tool queue entries from `hindsight_retain` tool calls are still flushed normally).
 
-When a session starts, pi-hindsight checks whether the session file already has hindsight metadata. If it doesn't, a metadata entry is automatically created with `retained` set to `retainSessionsByDefault`. This means:
+When a session starts, epimetheus checks whether the session file already has hindsight metadata. If it doesn't, a metadata entry is automatically created with `retained` set to `retainSessionsByDefault`. This means:
 
 - **New sessions**: get `retained: true` by default (matching `retainSessionsByDefault: true`)
 - **Old sessions resumed without metadata**: also get `retained` based on `retainSessionsByDefault` at the time they are opened
@@ -240,7 +240,7 @@ Tool results are included by default. Exclude them if you *never* need to retain
 
 Can also be set via environment variable as a JSON string:
 ```bash
-export PI_HINDSIGHT_RETAIN_CONTENT='{"assistant":["text"],"user":["text"],"toolResult":[]}'
+export EPIMETHEUS_RETAIN_CONTENT='{"assistant":["text"],"user":["text"],"toolResult":[]}'
 ```
 
 **Example — Keep only user and assistant text messages (no tool calls/results):**
@@ -272,7 +272,7 @@ Controls which metadata fields are removed before queuing:
 
 Can also be set via environment variable as a JSON string:
 ```bash
-export PI_HINDSIGHT_STRIP='{"topLevel":[],"message":["toolCallId"]}'
+export EPIMETHEUS_STRIP='{"topLevel":[],"message":["toolCallId"]}'
 ```
 
 **Example — Include tool results, strip toolCallId:**
@@ -328,7 +328,7 @@ No tool filtering (retain everything):
 
 Can also be set via environment variable as a JSON string:
 ```bash
-export PI_HINDSIGHT_TOOL_FILTER='{"toolCall":{"exclude":["bash"]},"toolResult":{"include":["read"]}}'
+export EPIMETHEUS_TOOL_FILTER='{"toolCall":{"exclude":["bash"]},"toolResult":{"include":["read"]}}'
 ```
 
 ### `entities`
@@ -350,7 +350,7 @@ Example:
 
 Or via environment variable as a JSON string:
 ```bash
-export PI_HINDSIGHT_ENTITIES='[{"text":"John","type":"PERSON"}]'
+export EPIMETHEUS_ENTITIES='[{"text":"John","type":"PERSON"}]'
 ```
 
 ### `observationScopes`
@@ -375,14 +375,14 @@ Using custom scope groups is recommended. Most users should combine a per-user s
 | `{parent}` | `parent:<parentId>` | Cross-fork observations (falls back to session ID if no parent) |
 | `{cwd}` | `cwd:<path>` | Per-directory observations |
 | `{basedir}` | `basedir:<basename>` | Per-directory-name observations |
-| `{project}` | `project:<name>` | Per-project observations (name from `PI_HINDSIGHT_PROJECT_NAME` or cwd basename) |
+| `{project}` | `project:<name>` | Per-project observations (name from `EPIMETHEUS_PROJECT_NAME` or cwd basename) |
 
 Placeholders must be used as standalone tags — e.g. `["{session}"]` not `["{session}:extra"]`. Non-exact placeholder usage will produce a config warning.
 
 **Choosing your scopes:**
 - **Per-session observations** (`["{session}"]`) — facts within a single session only — this is rarely useful unless you frequently resume the same session over and over. In practice, you'll get more value from:
 - **Per-user** (`["user:<me>"]`) — facts that span all your sessions/documents and memories stored manually with `hindsight_retain` tool, even across different harnesses. Add `"user:<me>"` to `constantTags` and use it as a scope. This is the most broadly useful scope.
-- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the cwd basename but can be overridden with `PI_HINDSIGHT_PROJECT_NAME`. This is ideal when a project might change directories or have multiple separate worktrees — observations stay linked to the project identity rather than a specific path. See [Project scope for relocatable projects](#project-scope-for-relocatable-projects).
+- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the cwd basename but can be overridden with `EPIMETHEUS_PROJECT_NAME`. This is ideal when a project might change directories or have multiple separate worktrees — observations stay linked to the project identity rather than a specific path. See [Project scope for relocatable projects](#project-scope-for-relocatable-projects).
 - **Per-directory** (`["{cwd}"]`) — facts about a specific project/codebase, consolidated across all sessions in that directory
 - **Per-basedir** (`["{basedir}"]`) — facts scoped by directory name (basename). Less precise than `{cwd}` but works across different parent paths with the same directory name
 - **Per-harness** (`["harness:pi"]`) — facts that span all pi sessions (included as a default constant tag)
@@ -394,14 +394,14 @@ Recommended example — Per-user scope plus per-project scope:
   "constantTags": ["harness:pi", "user:<me>"],
   "observationScopes": [
     ["user:<me>"],   // observations across all your sessions
-    ["{project}"]     // observations scoped to this project (basedir or PI_HINDSIGHT_PROJECT_NAME)
+    ["{project}"]     // observations scoped to this project (basedir or EPIMETHEUS_PROJECT_NAME)
   ]
 }
 ```
 
 This creates two consolidation passes:
 1. One for facts that span all your sessions (even across different harnesses, assuming you've also tagged those documents with `user:<me>`)
-2. One for facts specific to the current project (identified by `PI_HINDSIGHT_PROJECT_NAME` or the cwd basename)
+2. One for facts specific to the current project (identified by `EPIMETHEUS_PROJECT_NAME` or the cwd basename)
 
 > **Note on duplicate observations:** When you have multiple scopes in `observationScopes`, the same underlying memories may produce duplicate observations — one per scope. For example, a project-scoped observation and a global (per-user) observation may contain overlapping information. To avoid recalling duplicates, you should filter auto-recalled observations to the scope you currently want (e.g., use `autoRecallTags: ["{project}"]` for project-specific recall or `autoRecallTags: ["user:<me>"]` for global recall). Alternatively, if you will never need to switch between scopes, you can limit `observationScopes` to just one entry.
 
@@ -409,13 +409,13 @@ This creates two consolidation passes:
 
 Use `{project}` when you want observations tied to a project identity rather than a specific directory path. By default `{project}` expands to the cwd basename, so observations automatically follow the project across directory moves (e.g., `~/projects/myapp` → `~/work/myapp` — the `cwd` tag changes but the `project` tag stays the same).
 
-You only need to set `PI_HINDSIGHT_PROJECT_NAME` when you have multiple directories with the same basename that should have separate observations (e.g. `~/work/myapp` vs. `~/personal/myapp`) or if you are using separate worktree folders and want the project name to be the same for both.
+You only need to set `EPIMETHEUS_PROJECT_NAME` when you have multiple directories with the same basename that should have separate observations (e.g. `~/work/myapp` vs. `~/personal/myapp`) or if you are using separate worktree folders and want the project name to be the same for both.
 
-Set `PI_HINDSIGHT_PROJECT_NAME` per directory in, e.g. `.env` with [direnv](https://direnv.net/) or [mise](https://mise.jdx.dev/):
+Set `EPIMETHEUS_PROJECT_NAME` per directory in, e.g. `.env` with [direnv](https://direnv.net/) or [mise](https://mise.jdx.dev/):
 
 ```envrc
 # In .env per project directory (loaded by direnv or mise):
-PI_HINDSIGHT_PROJECT_NAME=myapp
+EPIMETHEUS_PROJECT_NAME=myapp
 ```
 
 ```jsonc
@@ -429,11 +429,11 @@ PI_HINDSIGHT_PROJECT_NAME=myapp
 ```
 
 **When to use `{project}` vs. `{cwd}` vs. `{basedir}`:**
-- `{project}` (recommended) — Observations scoped by project name (cwd basename by default). Automatically follows directory moves. Set `PI_HINDSIGHT_PROJECT_NAME` to disambiguate directories with the same basename or to give separate worktree directories the same project name.
+- `{project}` (recommended) — Observations scoped by project name (cwd basename by default). Automatically follows directory moves. Set `EPIMETHEUS_PROJECT_NAME` to disambiguate directories with the same basename or to give separate worktree directories the same project name.
 - `{cwd}` — Use when you want observations tied to an exact directory path. Different directories with the same basename produce separate observations.
 - `{basedir}` — Use when you want observations grouped by directory name regardless of parent path. All directories named `myapp` share observations.
 
-> **Note:** Since `basedir:` and `project:` tags are generated at retain time, re-parsing and re-ingesting a session (via `/hindsight parse-and-upsert-session`) will use the *current* basedir or `PI_HINDSIGHT_PROJECT_NAME`. This means you can change the project identity of an existing session by updating the env var and re-ingesting — useful for correcting or migrating project names after the fact. The `cwd:` tag is fixed from the session header and does not change on re-parse (unless you manually change it).
+> **Note:** Since `basedir:` and `project:` tags are generated at retain time, re-parsing and re-ingesting a session (via `/hindsight parse-and-upsert-session`) will use the *current* basedir or `EPIMETHEUS_PROJECT_NAME`. This means you can change the project identity of an existing session by updating the env var and re-ingesting — useful for correcting or migrating project names after the fact. The `cwd:` tag is fixed from the session header and does not change on re-parse (unless you manually change it).
 >
 > The `cwd:` tag and `{cwd}`/`{basedir}`/`{project}` placeholders (in both observation scopes and auto-recall tags) use the session's cwd from the session header — the directory the session was first created in.
 
@@ -444,7 +444,7 @@ Full example with all available scopes:
   "observationScopes": [
     ["user:<me>"],    // observations across all your sessions
     ["harness:pi"],   // observations across all pi sessions
-    ["{project}"],    // observations scoped to this project (PI_HINDSIGHT_PROJECT_NAME or basedir)
+    ["{project}"],    // observations scoped to this project (EPIMETHEUS_PROJECT_NAME or basedir)
     ["{cwd}"],        // observations scoped to this exact directory path
     ["{basedir}"],    // observations scoped to this directory name
     ["{session}"],    // observations scoped to this session only (rarely needed)
@@ -455,7 +455,7 @@ Full example with all available scopes:
 
 Or via environment variable as a JSON string:
 ```bash
-export PI_HINDSIGHT_OBSERVATION_SCOPES='[["{session}","user:alice"],["project:foo"]]'
+export EPIMETHEUS_OBSERVATION_SCOPES='[["{session}","user:alice"],["project:foo"]]'
 ```
 
 Note: This is currently a config-only setting and not exposed as a parameter on the `hindsight_retain` tool. The configured scope applies to all retains (both auto and tool-initiated).
@@ -521,13 +521,13 @@ With this configuration:
 - **Retention**: Observations are consolidated per-user (global) and per-project
 - **Recall**: Only memories tagged with the current project name are recalled
 
-If you need backward compatibility with old memories stored under `cwd:` tags where the directory has changed, add the legacy tags via the `PI_HINDSIGHT_AUTO_RECALL_TAGS` env var per-directory (not in config.json, which is shared across all projects):
+If you need backward compatibility with old memories stored under `cwd:` tags where the directory has changed, add the legacy tags via the `EPIMETHEUS_AUTO_RECALL_TAGS` env var per-directory (not in config.json, which is shared across all projects):
 ```envrc
 # In .env per project directory (loaded by direnv or mise):
 # Supports old memories from a project that has changed directories *and* been renamed
-PI_HINDSIGHT_AUTO_RECALL_TAGS='["cwd:/old/path/to/project-name","project:old-name","{project}"]'
+EPIMETHEUS_AUTO_RECALL_TAGS='["cwd:/old/path/to/project-name","project:old-name","{project}"]'
 # OR: match any of the above
-PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH=any_strict
+EPIMETHEUS_AUTO_RECALL_TAGS_MATCH=any_strict
 ```
 
 ## Environment Variables
@@ -536,46 +536,46 @@ Configuration options can also be set via environment variables (override config
 <details>
 <summary>Click to see table of all environment variables</summary>
 
-| Environment Variable | Config Key | Type | Default |
-|---------------------|------------|------|---------|
-| `PI_HINDSIGHT_ENABLED` | `enabled` | boolean | `true` |
+| Environment Variable (preferred; legacy `PI_HINDSIGHT_*` also works) | Config Key | Type | Default |
+|---------------------------------------------------------------------|------------|------|---------|
+| `EPIMETHEUS_ENABLED` | `enabled` | boolean | `true` |
 | `HINDSIGHT_API_URL` | `apiUrl` | string | *(required)* |
 | `HINDSIGHT_API_KEY` | `apiKey` | string | *(required)* |
-| `PI_HINDSIGHT_BANK_ID` | `bankId` | string | *(required)* |
-| `PI_HINDSIGHT_TOOLS_ENABLED` | `toolsEnabled` | boolean \| JSON array of tool names | `true` |
-| `PI_HINDSIGHT_AUTO_RECALL_ENABLED` | `autoRecallEnabled` | boolean | `true` |
-| `PI_HINDSIGHT_AUTO_RECALL_BUDGET` | `autoRecallBudget` | `"low"` \| `"mid"` \| `"high"` | `"mid"` |
-| `PI_HINDSIGHT_AUTO_RETAIN_ENABLED` | `autoRetainEnabled` | boolean | `true` |
-| `PI_HINDSIGHT_CONTEXT_PREFIX` | `hindsightContextPrefix` | string | `"pi: "` |
-| `PI_HINDSIGHT_CONTEXT_MAX_LENGTH` | `hindsightContextMaxLength` | number | `100` |
-| `PI_HINDSIGHT_MAX_RECALL_TOKENS` | `maxRecallTokens` | number \| null | `null` |
-| `PI_HINDSIGHT_RECALL_PROMPT_PREAMBLE` | `recallPromptPreamble` | string | *(see defaults)* |
-| `PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME` | `autoRecallShowDateTime` | boolean | `true` |
-| `PI_HINDSIGHT_AUTO_RECALL_DISPLAY` | `autoRecallDisplay` | boolean | `false` |
-| `PI_HINDSIGHT_AUTO_RECALL_PERSIST` | `autoRecallPersist` | boolean | `false` |
-| `PI_HINDSIGHT_AUTO_RECALL_ROLE` | `autoRecallRole` | `"user"` \| `"assistant"` | `"user"` |
-| `PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS` | `recallMaxQueryChars` | number | `800` |
-| `PI_HINDSIGHT_AUTO_RECALL_TYPES` | `autoRecallTypes` | string[] (JSON) | `["observation"]` |
-| `PI_HINDSIGHT_AUTO_RECALL_TAGS` | `autoRecallTags` | string[] (JSON) | `null` |
-| `PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH` | `autoRecallTagsMatch` | string | `"any"` |
-| `PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS` | `autoRecallTagGroups` | TagGroupInput[] (JSON) | `null` |
-| `PI_HINDSIGHT_CONSTANT_TAGS` | `constantTags` | string[] (JSON) | `["harness:pi"]` |
-| `PI_HINDSIGHT_AUTO_FLUSH_SESSION_ON` | `autoFlushSessionOn` | string[] (JSON) | `["switch", "fork", "reload"]` |
-| `PI_HINDSIGHT_AUTO_FLUSH_PENDING_ON` | `autoFlushPendingOn` | string[] (JSON) | `["quit"]` |
-| `PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH` | `requireExtraContextBeforeFlush` | boolean | `false` |
-| `PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT` | `retainSessionsByDefault` | boolean | `true` |
-| `PI_HINDSIGHT_RETAIN_CONTENT` | `retainContent` | RetainContent (JSON) | *(see retainContent default)* |
-| `PI_HINDSIGHT_STRIP` | `strip` | StripConfig (JSON) | *(see strip default)* |
-| `PI_HINDSIGHT_TOOL_FILTER` | `toolFilter` | ToolFilter (JSON) | *(see toolFilter default)* |
-| `PI_HINDSIGHT_PROJECT_NAME` | *(not in config)* | string | *(falls back to cwd basename)* |
-| `PI_HINDSIGHT_ENTITIES` | `entities` | EntityInput[] (JSON) | `[]` |
-| `PI_HINDSIGHT_OBSERVATION_SCOPES` | `observationScopes` | ObservationScopes (JSON or preset string) | `null` (required) |
-| `PI_HINDSIGHT_STATUS_HEALTHY` | `statusHealthy` | string | `"🧠"` |
-| `PI_HINDSIGHT_STATUS_UNHEALTHY` | `statusUnhealthy` | string | `"🤯"` |
-| `PI_HINDSIGHT_DEBUG` | `debug` | boolean | `false` |
+| `EPIMETHEUS_BANK_ID` | `bankId` | string | *(required)* |
+| `EPIMETHEUS_TOOLS_ENABLED` | `toolsEnabled` | boolean \| JSON array of tool names | `true` |
+| `EPIMETHEUS_AUTO_RECALL_ENABLED` | `autoRecallEnabled` | boolean | `true` |
+| `EPIMETHEUS_AUTO_RECALL_BUDGET` | `autoRecallBudget` | `"low"` \| `"mid"` \| `"high"` | `"mid"` |
+| `EPIMETHEUS_AUTO_RETAIN_ENABLED` | `autoRetainEnabled` | boolean | `true` |
+| `EPIMETHEUS_CONTEXT_PREFIX` | `hindsightContextPrefix` | string | `"pi: "` |
+| `EPIMETHEUS_CONTEXT_MAX_LENGTH` | `hindsightContextMaxLength` | number | `100` |
+| `EPIMETHEUS_MAX_RECALL_TOKENS` | `maxRecallTokens` | number \| null | `null` |
+| `EPIMETHEUS_RECALL_PROMPT_PREAMBLE` | `recallPromptPreamble` | string | *(see defaults)* |
+| `EPIMETHEUS_AUTO_RECALL_SHOW_DATETIME` | `autoRecallShowDateTime` | boolean | `true` |
+| `EPIMETHEUS_AUTO_RECALL_DISPLAY` | `autoRecallDisplay` | boolean | `false` |
+| `EPIMETHEUS_AUTO_RECALL_PERSIST` | `autoRecallPersist` | boolean | `false` |
+| `EPIMETHEUS_AUTO_RECALL_ROLE` | `autoRecallRole` | `"user"` \| `"assistant"` | `"user"` |
+| `EPIMETHEUS_RECALL_MAX_QUERY_CHARS` | `recallMaxQueryChars` | number | `800` |
+| `EPIMETHEUS_AUTO_RECALL_TYPES` | `autoRecallTypes` | string[] (JSON) | `["observation"]` |
+| `EPIMETHEUS_AUTO_RECALL_TAGS` | `autoRecallTags` | string[] (JSON) | `null` |
+| `EPIMETHEUS_AUTO_RECALL_TAGS_MATCH` | `autoRecallTagsMatch` | string | `"any"` |
+| `EPIMETHEUS_AUTO_RECALL_TAG_GROUPS` | `autoRecallTagGroups` | TagGroupInput[] (JSON) | `null` |
+| `EPIMETHEUS_CONSTANT_TAGS` | `constantTags` | string[] (JSON) | `["harness:pi"]` |
+| `EPIMETHEUS_AUTO_FLUSH_SESSION_ON` | `autoFlushSessionOn` | string[] (JSON) | `["switch", "fork", "reload"]` |
+| `EPIMETHEUS_AUTO_FLUSH_PENDING_ON` | `autoFlushPendingOn` | string[] (JSON) | `["quit"]` |
+| `EPIMETHEUS_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH` | `requireExtraContextBeforeFlush` | boolean | `false` |
+| `EPIMETHEUS_RETAIN_SESSIONS_BY_DEFAULT` | `retainSessionsByDefault` | boolean | `true` |
+| `EPIMETHEUS_RETAIN_CONTENT` | `retainContent` | RetainContent (JSON) | *(see retainContent default)* |
+| `EPIMETHEUS_STRIP` | `strip` | StripConfig (JSON) | *(see strip default)* |
+| `EPIMETHEUS_TOOL_FILTER` | `toolFilter` | ToolFilter (JSON) | *(see toolFilter default)* |
+| `EPIMETHEUS_PROJECT_NAME` | *(not in config)* | string | *(falls back to cwd basename)* |
+| `EPIMETHEUS_ENTITIES` | `entities` | EntityInput[] (JSON) | `[]` |
+| `EPIMETHEUS_OBSERVATION_SCOPES` | `observationScopes` | ObservationScopes (JSON or preset string) | `null` (required) |
+| `EPIMETHEUS_STATUS_HEALTHY` | `statusHealthy` | string | `"🧠"` |
+| `EPIMETHEUS_STATUS_UNHEALTHY` | `statusUnhealthy` | string | `"🤯"` |
+| `EPIMETHEUS_DEBUG` | `debug` | boolean | `false` |
 </details>
 
-> **Note:** `PI_HINDSIGHT_PROJECT_NAME` is a special environment variable that controls the `project:` auto-tag and `{project}` observation scope placeholder. Unlike other env vars, it does not correspond to a config file key — it is read at tag-build time and falls back to the cwd basename if not set. This makes it ideal for setting per-directory in `.env` (with direnv or mise) to disambiguate directories that share the same basename or to give separate worktree directories the same project name so they share observations.
+> **Note:** `EPIMETHEUS_PROJECT_NAME` is a special environment variable that controls the `project:` auto-tag and `{project}` observation scope placeholder. Unlike other env vars, it does not correspond to a config file key — it is read at tag-build time and falls back to the cwd basename if not set. This makes it ideal for setting per-directory in `.env` (with direnv or mise) to disambiguate directories that share the same basename or to give separate worktree directories the same project name so they share observations.
 
 # Additional Details
 ## Memory Fencing
@@ -641,9 +641,9 @@ All commands are under `/hindsight <subcommand>`. With no subcommand, defaults t
 
 # Known Package Interactions
 ## subagents
-You should check how your subagent plugin interacts with sessions. If it writes to a separate session, and you do not want memories stored for subagents, you should disable pi-hindsight for subagents. A good subagent plugin should allow disabling or configuring extensions per-agent.
+You should check how your subagent plugin interacts with sessions. If it writes to a separate session, and you do not want memories stored for subagents, you should disable epimetheus for subagents. A good subagent plugin should allow disabling or configuring extensions per-agent.
 
-Edxeth's pi-subagents plugin injects `custom_message` entries via `before_agent_start` (subagent roster) and `sendMessage` (subagent results). These are converted to user-role messages by pi's `convertToLlm`. Since pi-subagents does not use the `context` event, its messages appear before pi-hindsight's recall injection, so the ordering (user prompt → roster/result as user → recall as assistant) is typically fine. However, if other extensions inject messages via the `context` event, injection order cannot be controlled and mixed roles after the user prompt may confuse the LLM. Consider setting `autoRecallRole: "user"` if this becomes an issue.
+Edxeth's pi-subagents plugin injects `custom_message` entries via `before_agent_start` (subagent roster) and `sendMessage` (subagent results). These are converted to user-role messages by pi's `convertToLlm`. Since pi-subagents does not use the `context` event, its messages appear before epimetheus' recall injection, so the ordering (user prompt → roster/result as user → recall as assistant) is typically fine. However, if other extensions inject messages via the `context` event, injection order cannot be controlled and mixed roles after the user prompt may confuse the LLM. Consider setting `autoRecallRole: "user"` if this becomes an issue.
 
 ## rewind/rollback
 Rollback with checkpoint extensions is untested. It may require code changes to include rollback information/messages. I think it makes sense to include the rollback information in memories (what happened? why was it necessary?), so I won't support actually removing messages from before the rollback in the final ingested document.

@@ -24,7 +24,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getDataDir } from "./data-dir";
 
 /** Live session state file format. */
 export interface SessionStateFile {
@@ -38,7 +38,7 @@ export interface SessionStateFile {
 // ============================================
 
 function getSessionStateDir(): string {
-  return join(getAgentDir(), "extensions", "pi-hindsight", "session-state");
+  return join(getDataDir(), "session-state");
 }
 
 export function getSessionStatePath(sessionId: string): string {

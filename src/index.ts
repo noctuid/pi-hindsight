@@ -1,5 +1,5 @@
 /**
- * pi-hindsight extension entry point.
+ * epimetheus extension entry point.
  *
  * Integrates Hindsight AI memory with pi coding agent using
  * turn-based flush with Hindsight's replace mode.
@@ -9,7 +9,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import { Box, type Component, Text } from "@earendil-works/pi-tui";
 import type { RecallResponse } from "@vectorize-io/hindsight-client";
 import { HindsightClientWrapper } from "./client";
-import { registerCommands } from "./commands";
+import { registerCommands, resetNotReadyWarned } from "./commands";
 import { flushAllPending } from "./commands/session";
 import {
   expandAutoRecallTagGroups,
@@ -19,10 +19,14 @@ import {
   type TagsMatch,
   validateConfig,
 } from "./config";
+import { prefixLog, STATUS_ID } from "./constants";
+import { getDataDir } from "./data-dir";
+import { getLegacyDataDir, migrateDataDir } from "./data-dir-migration";
 import { getHindsightMeta, shouldSessionBeRetained, updateSessionMetadata } from "./meta";
 import { shouldRetainMessage } from "./prepare";
 import { touchPendingFlag } from "./queue";
 import { flushCurrentSession } from "./retention";
+import { isStartupReady, markStartupReady, resetStartupReady } from "./runtime-state";
 import { isToolEnabled, registerTools, updateRetainToolVisibility } from "./tools";
 import { extractParentSessionId, getProjectName, truncate } from "./utils";
 import { getHindsightCompatibilityError } from "./version";
@@ -41,6 +45,16 @@ let lastRecallDetails: RecallMessageDetails | null = null;
 // Track the last compatibility warning so we don't spam session_start events.
 let lastCompatibilityMessage: string | null = null;
 
+// Hindsight tools are process-global and registered lazily from session_start.
+// This is separate from startupReady: readiness gates operational handlers,
+// while toolsRegistered only makes registerTools() idempotent.
+let toolsRegistered = false;
+
+// In-flight health/version probe shared by overlapping readiness checks.
+// Cleared after each attempt so failures can be retried; successful readiness
+// is recorded in runtime-state's startupReady latch.
+let startupReadyPromise: Promise<boolean> | null = null;
+
 /**
  * Reset module-level mutable state. Exported for testing only.
  */
@@ -49,6 +63,10 @@ export function _resetState(): void {
   lastRecallMessage = null;
   lastRecallDetails = null;
   lastCompatibilityMessage = null;
+  toolsRegistered = false;
+  startupReadyPromise = null;
+  resetStartupReady();
+  resetNotReadyWarned();
 }
 
 /**
@@ -100,6 +118,23 @@ function registerRecallRenderer(pi: ExtensionAPI, getDisplay: () => boolean): vo
 }
 
 export default function (pi: ExtensionAPI) {
+  // One-time data-dir migration (legacy <agentdir>/extensions/pi-hindsight →
+  // <agentdir>/epimetheus). Runs before config load / new-dir creation so the
+  // config and data the rest of the extension reads already lives in the new
+  // location. Non-destructive copy; safe to run on every startup (a marker
+  // file makes it a silent no-op once done).
+  const migration = migrateDataDir();
+  if (migration.action === "copied") {
+    console.log(
+      prefixLog(
+        `migrated data directory to ${getDataDir()} (copied from ${getLegacyDataDir()}). ` +
+          `The legacy directory was left in place; remove it after verifying the migration.`
+      )
+    );
+  } else if (migration.action === "warned" && migration.message) {
+    console.warn(migration.message);
+  }
+
   // Load and validate config
   const { config, configPath, warning, envVars } = loadConfig();
   const validation = validateConfig(config);
@@ -114,7 +149,7 @@ export default function (pi: ExtensionAPI) {
   //    - autoRecallDisplay: false → renderer hides messages from the chat
   //      (returns empty lines), preventing raw custom message data from showing
   if (!config.enabled) {
-    console.log("pi-hindsight disabled via config");
+    console.log(prefixLog("disabled via config"));
 
     // Filter hindsight-recall messages from context
     registerRecallFilter(pi);
@@ -138,20 +173,136 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  // Fail fast on invalid config: no client, tools, auto-retain, auto-recall,
+  // metadata, session-state, or queue writes. Still register recall display
+  // handlers and read-only /hindsight diagnostics so users can inspect why the
+  // extension is unavailable.
+  //
+  // Previously the full handler set was still registered with a null client,
+  // and session_start could append hindsight-meta / write session-state before
+  // reaching the hasUsableConfig check.
   if (!validation.valid) {
     for (const error of validation.errors) {
       console.error(error);
     }
-  } else {
-    client = new HindsightClientWrapper(config);
+    pi.on("session_start", async (_event, ctx) => {
+      ctx.ui.setStatus(STATUS_ID, config.statusUnhealthy);
+    });
+    registerRecallFilter(pi);
+    registerRecallRenderer(pi, () => autoRecallDisplayOverride ?? config.autoRecallDisplay);
+    registerCommands(
+      pi,
+      config,
+      null,
+      () => lastRecallDetails,
+      () => autoRecallDisplayOverride,
+      (value) => {
+        autoRecallDisplayOverride = value;
+      },
+      () => false,
+      {
+        configPath,
+        envVars,
+        warning,
+        validationWarnings: [...validation.errors, ...validation.warnings],
+      }
+    );
+    return;
   }
 
-  // Set status bar indicator based on health
-  // Unhealthy when config is invalid (no client) or server is unreachable.
-  // Validation warnings (e.g. autoRecallDisplay with autoRecallPersist) are cosmetic
-  // and should not override a successful connectivity check.
-  const hasUsableConfig = validation.valid;
+  client = new HindsightClientWrapper(config);
+
+  /**
+   * Probe server reachability + version compatibility and update the status bar.
+   *
+   * This deliberately does not latch readiness, register tools, create
+   * metadata, or update retain visibility. Callers decide what to do with the
+   * boolean result. Compatibility warnings are deduped across probes.
+   */
+  async function probeStartupHealth(
+    targetClient: HindsightClientWrapper | null,
+    ctx: ExtensionContext
+  ): Promise<boolean> {
+    if (!targetClient) {
+      ctx.ui.setStatus(STATUS_ID, config.statusUnhealthy);
+      return false;
+    }
+    // Verify server is reachable before querying version.
+    const healthResult = await targetClient.healthCheck(ctx.signal);
+    if (!healthResult.success) {
+      ctx.ui.setStatus(STATUS_ID, config.statusUnhealthy);
+      return false;
+    }
+
+    // Verify server version compatibility.
+    const versionResult = await targetClient.getServerVersion(ctx.signal);
+    const compatibilityError = versionResult.success
+      ? getHindsightCompatibilityError(versionResult.version)
+      : `Unable to query Hindsight server version: ${versionResult.error ?? "unknown error"}`;
+    if (compatibilityError) {
+      if (compatibilityError !== lastCompatibilityMessage) {
+        ctx.ui.notify(compatibilityError, "warning");
+        lastCompatibilityMessage = compatibilityError;
+      }
+      ctx.ui.setStatus(STATUS_ID, config.statusUnhealthy);
+      return false;
+    }
+
+    ctx.ui.setStatus(STATUS_ID, config.statusHealthy);
+    return true;
+  }
+
+  /**
+   * Establish health/version readiness with single-flight.
+   *
+   * If readiness is already latched, returns true without probing. Otherwise,
+   * overlapping callers share one probe; a successful probe flips startupReady
+   * one-way. Failures leave readiness false and can be retried later.
+   *
+   * This helper must not perform session setup. session_start owns metadata,
+   * tool registration, retain visibility, and startup flushes.
+   */
+  function ensureStartupReady(ctx: ExtensionContext): Promise<boolean> {
+    // Fast path: already latched — no probe, no shared work.
+    if (isStartupReady()) return Promise.resolve(true);
+    // Single-flight: a concurrent caller (session_start + before_agent_start
+    // overlap, or two before_agent_start events) joins the in-flight probe.
+    if (startupReadyPromise) return startupReadyPromise;
+
+    startupReadyPromise = (async () => {
+      try {
+        if (!(await probeStartupHealth(client, ctx))) return false;
+        // One-way latch: only ever flips false → true. After one successful
+        // config + connection pass, later health failures are treated as likely
+        // transient: report them via status, but don't tear down process-global
+        // handlers/tools or disturb per-session tool visibility. Health/version
+        // is the gating concern; session init stays in `session_start`.
+        markStartupReady();
+        return true;
+      } finally {
+        // Clear so a failed attempt can be retried, and so a post-latch caller
+        // never observes a stale resolved promise.
+        startupReadyPromise = null;
+      }
+    })();
+    return startupReadyPromise;
+  }
+
   pi.on("session_start", async (event, ctx) => {
+    // session_start owns per-session setup. Health/version readiness is checked
+    // first; when unavailable, skip side effects. Once ready, setup still runs
+    // on every session_start so new/resumed sessions get their own metadata and
+    // retain-tool visibility even after global readiness was latched earlier.
+    const wasReady = isStartupReady();
+    if (!(await ensureStartupReady(ctx))) return;
+
+    // If readiness was already latched, probe again to refresh status. A later
+    // health/version failure is reported as unhealthy, but treated as transient:
+    // do not undo readiness, tear down tools, or skip this session's
+    // metadata/visibility work. Do skip startup auto-flush below because it is
+    // automatic network work and this handler just observed an unhealthy server.
+    const currentProbeHealthy = wasReady ? await probeStartupHealth(client, ctx) : true;
+
     // Auto-create session metadata if none exists, using retainSessionsByDefault
     // as the default retained state. This ensures every session has explicit
     // metadata, so toggle-retain and other commands work predictably.
@@ -168,52 +319,42 @@ export default function (pi: ExtensionAPI) {
       );
     }
 
-    // Update hindsight_retain tool visibility based on retention state.
-    // When not retained, the tool is hidden from the LLM entirely (instead
-    // of being available but failing on execution).
+    // Register hindsight tools once (process-global). Late registration
+    // auto-activates the tools via refreshTools, so they are visible from the
+    // first agent turn on. Idempotent — only the first session_start reaching
+    // here with toolsRegistered false registers; later session_starts skip this
+    // for tools but still run the per-session metadata/visibility work.
+    if (!toolsRegistered) {
+      registerTools(pi, config, client);
+      toolsRegistered = true;
+    }
+    // Update hindsight_retain tool visibility based on the current session's
+    // retention state. When not retained, the tool is hidden from the LLM
+    // entirely (instead of being available but failing on execution).
     if (isToolEnabled(config, "retain")) {
       const isRetained = shouldSessionBeRetained(entries, config);
       updateRetainToolVisibility(pi, isRetained);
     }
 
-    if (!hasUsableConfig) {
-      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
-      return;
-    }
-
-    // Verify server is reachable before querying version.
-    const healthResult = await client?.healthCheck(ctx.signal);
-    if (!healthResult?.success) {
-      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
-      return;
-    }
-
-    // Verify server version compatibility.
-    const versionResult = await client?.getServerVersion(ctx.signal);
-    const compatibilityError = versionResult?.success
-      ? getHindsightCompatibilityError(versionResult.version)
-      : `Unable to query Hindsight server version: ${versionResult?.error ?? "unknown error"}`;
-    if (compatibilityError) {
-      if (compatibilityError !== lastCompatibilityMessage) {
-        ctx.ui.notify(compatibilityError, "warning");
-        lastCompatibilityMessage = compatibilityError;
-      }
-      ctx.ui.setStatus("pi-hindsight", config.statusUnhealthy);
-      return;
-    }
-
-    ctx.ui.setStatus("pi-hindsight", config.statusHealthy);
-
-    // On startup, optionally flush pending work across all sessions. Runs after
-    // the client is ready and avoids noisy no-work output (no "No pending changes"
-    // unless the flush-pending command path).
-    if (event.reason === "startup" && config.autoFlushPendingOn.includes("startup") && client) {
+    // On startup, optionally flush pending work across all sessions. This is
+    // reason-gated to `session_start` only — it is a best-effort cleanup of old
+    // pending sessions, not a readiness prerequisite, so `before_agent_start`'s
+    // recovery path must NOT trigger it (avoids surprising first-prompt flushes).
+    if (
+      currentProbeHealthy &&
+      event.reason === "startup" &&
+      config.autoFlushPendingOn.includes("startup") &&
+      client
+    ) {
       await flushAllPending(config, client, ctx, { notifyNoWork: false, autoFlush: true });
     }
   });
 
-  // Register tools (hindsight_retain always, hindsight_recall when configured)
-  registerTools(pi, config, client);
+  // Tools are registered lazily in the session_start success path (after
+  // health + version checks pass), not at extension init. This means no
+  // hindsight_* tool exists until the first healthy session_start (whenever
+  // it occurs), and there is no init-time global setActiveTools hide call. Recall
+  // filter/renderer and the /hindsight command are still registered now.
 
   // Register slash commands (pass getter/setter for runtime state)
   registerCommands(
@@ -225,6 +366,7 @@ export default function (pi: ExtensionAPI) {
     (value) => {
       autoRecallDisplayOverride = value;
     },
+    isStartupReady,
     {
       configPath,
       envVars,
@@ -249,6 +391,15 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
     if (!client || !config.autoRecallEnabled) return;
 
+    // before_agent_start can be the first lifecycle point with the user's
+    // prompt. If session_start has not latched readiness yet, check
+    // health/version on demand so first-turn recall can proceed when the server
+    // is healthy. This does not initialize the session; that remains
+    // session_start's responsibility. The extra readiness read is defensive: if
+    // another lifecycle path latched readiness while this await resolved false,
+    // don't skip an otherwise-safe first-turn recall.
+    if (!(await ensureStartupReady(ctx)) && !isStartupReady()) return;
+
     // Use event.prompt directly — available before the user message is
     // persisted to the session (fixes first-message recall).
     const query = event.prompt;
@@ -271,7 +422,7 @@ export default function (pi: ExtensionAPI) {
     // sessionId is always available by before_agent_start (set during session_start),
     // so this guard is purely defensive and not practically reachable
     if (!sessionId) {
-      ctx.ui.notify("pi-hindsight: auto-recall skipped: no active session", "warning");
+      ctx.ui.notify(prefixLog("auto-recall skipped: no active session"), "warning");
       return;
     }
     const sessionCwd = header?.cwd ?? ctx.cwd;
@@ -346,11 +497,11 @@ export default function (pi: ExtensionAPI) {
 
   // Mark sessions as dirty on message_end event
   pi.on("message_end", async (event, ctx: ExtensionContext) => {
-    if (!config.autoRetainEnabled) return;
+    if (!config.autoRetainEnabled || !isStartupReady()) return;
 
     const sessionId = ctx.sessionManager.getSessionId();
     if (!sessionId) {
-      ctx.ui.notify("pi-hindsight: auto-retain skipped: no active session", "warning");
+      ctx.ui.notify(prefixLog("auto-retain skipped: no active session"), "warning");
       return;
     }
 
@@ -374,7 +525,7 @@ export default function (pi: ExtensionAPI) {
 
   /** Auto-flush: suppresses transient block notifications unless debug mode is on. */
   const autoFlush = async (ctx: ExtensionContext): Promise<void> => {
-    if (!client) return;
+    if (!client || !isStartupReady()) return;
     const sessionId = ctx.sessionManager.getSessionId();
     const sessionPath = ctx.sessionManager.getSessionFile();
     if (!sessionId || !sessionPath) return;
@@ -407,9 +558,9 @@ export default function (pi: ExtensionAPI) {
           return (message: string, level?: "info" | "warning" | "error") => {
             notify(message, level);
             if (level === "warning") {
-              console.warn(`pi-hindsight: ${message}`);
+              console.warn(prefixLog(message));
             } else if (level === "error") {
-              console.error(`pi-hindsight: ${message}`);
+              console.error(prefixLog(message));
             }
           };
         }
@@ -510,7 +661,7 @@ export default function (pi: ExtensionAPI) {
   // semantics: success, no-work, and block/not-retained warnings are suppressed
   // unless `debug: true` (compaction is not a final-chance event like `/quit`).
   pi.on("session_compact", async (_event, ctx: ExtensionContext) => {
-    if (!config.autoFlushSessionOn.includes("compact") || !client) return;
+    if (!config.autoFlushSessionOn.includes("compact") || !client || !isStartupReady()) return;
     const sessionId = ctx.sessionManager.getSessionId();
     const sessionPath = ctx.sessionManager.getSessionFile();
     if (!sessionId || !sessionPath) return;
@@ -537,7 +688,7 @@ export default function (pi: ExtensionAPI) {
   //     skipped to avoid duplicate work (see config validation warning).
   pi.on("session_shutdown", async (event, ctx: ExtensionContext) => {
     if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") return;
-    if (!client) return;
+    if (!client || !isStartupReady()) return;
     if (event.reason === "reload") {
       if (!config.autoFlushSessionOn.includes("reload")) return;
       const sessionId = ctx.sessionManager.getSessionId();

@@ -10,7 +10,7 @@
  *    parse/upsert. Not used for normal-flush live state.
  * 3. In-session `hindsight-meta` entries: written to the session JSONL on every
  *    metadata change. Portable source of truth — if the user moves session files
- *    without copying the pi-hindsight working directory, the session file still
+ *    without copying the epimetheus working directory, the session file still
  *    contains the metadata. Normal flush always reparses the session file.
  */
 

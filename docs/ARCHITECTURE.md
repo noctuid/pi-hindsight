@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains pi-hindsight's ingestion architecture: how session content, explicit tool retains, and metadata move from Pi session state into Hindsight.
+This document explains epimetheus' ingestion architecture: how session content, explicit tool retains, and metadata move from Pi session state into Hindsight.
 
 ## Goals
 
@@ -16,13 +16,13 @@ The design aims to handle unlikely edge cases (process crashes, concurrent flush
 
 ## Data sources
 
-pi-hindsight ingests two kinds of data.
+epimetheus ingests two kinds of data.
 
 ### Session content
 
-Normal conversation content is stored in Pi session JSONL files. pi-hindsight does not persist a second copy of every message in its queue. Instead, it records small pending markers saying that a session should be reparsed.
+Normal conversation content is stored in Pi session JSONL files. epimetheus does not persist a second copy of every message in its queue. Instead, it records small pending markers saying that a session should be reparsed.
 
-On every session flush, pi-hindsight reparses the Pi session JSONL file for conversation messages and structural identity, then upserts with a stable session document ID. The on-disk `.messages.jsonl` file is not a normal flush cache; it is a review/export artifact written by `/hindsight parse-session` and normal flushes.
+On every session flush, epimetheus reparses the Pi session JSONL file for conversation messages and structural identity, then upserts with a stable session document ID. The on-disk `.messages.jsonl` file is not a normal flush cache; it is a review/export artifact written by `/hindsight parse-session` and normal flushes.
 
 ### Explicit tool retains
 
@@ -270,7 +270,7 @@ Config/env-derived ingestion metadata is rebuilt whenever an upsert happens inst
 - final Hindsight context from current `hindsightContextPrefix`, session name, and extra context;
 - constant tags from current config;
 - structural tags such as `session:<id>`, `cwd:<path>`, `basedir:<name>`, `store_method:auto`, and `parent:<id>`;
-- project tag/name, including the current `PI_HINDSIGHT_PROJECT_NAME` override when set, otherwise derived from the session cwd;
+- project tag/name, including the current `EPIMETHEUS_PROJECT_NAME` override when set, otherwise derived from the session cwd;
 - observation scopes from current config, with placeholders expanded using the session ID, parent session ID, session cwd, basedir, and project name;
 - entities from current config.
 

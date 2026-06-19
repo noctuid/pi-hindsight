@@ -13,13 +13,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getDataDir } from "./data-dir";
 
 /**
  * Get the base queue directory path.
  */
 export function getQueueDir(): string {
-  return join(getAgentDir(), "extensions", "pi-hindsight", "queue");
+  return join(getDataDir(), "queue");
 }
 
 /**

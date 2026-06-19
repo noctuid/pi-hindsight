@@ -1,5 +1,5 @@
 /**
- * Shared test fixtures and helpers for pi-hindsight tests.
+ * Shared test fixtures and helpers for epimetheus tests.
  *
  * Centralizes config objects, mock factories, and common types
  * to avoid duplication across test files.
@@ -178,7 +178,7 @@ export function createMockContext(overrides: Record<string, unknown> = {}): Exte
   const sessionId = (overrides._sessionId as string) ?? "test-session-123";
   const extraContext = (overrides._extraContext as string) ?? undefined;
   const retained = (overrides._retained as boolean) ?? true;
-  const sessionDir = mkdtempSync(join(tmpdir(), "pi-hindsight-ctx-"));
+  const sessionDir = mkdtempSync(join(tmpdir(), "epimetheus-ctx-"));
   // Track for afterAll cleanup; createMockContext may be called many times across
   // a test file, and each creates a temp dir that would otherwise leak.
   createdMockContextDirs.add(sessionDir);
@@ -314,7 +314,7 @@ export function readToolQueueFromDisk(sessionId: string): ToolQueueEntry[] {
  * @returns The temp directory path
  */
 export function setupTempAgentDir(label: string): string {
-  const dir = mkdtempSync(join(tmpdir(), `pi-hindsight-${label}-`));
+  const dir = mkdtempSync(join(tmpdir(), `epimetheus-${label}-`));
   const prevValue = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;
   afterAll(() => {
@@ -336,44 +336,82 @@ export function setupTempAgentDir(label: string): string {
  * Hindsight-related environment variable keys that affect config loading.
  * Use with {@link saveEnvKeys} in beforeEach/afterEach to isolate tests from
  * the host environment.
+ *
+ * Includes both the current `EPIMETHEUS_*` (preferred) and legacy
+ * `PI_HINDSIGHT_*` fallback names so tests that set either get cleaned up.
+ * `HINDSIGHT_API_URL` / `HINDSIGHT_API_KEY` (official Hindsight service vars)
+ * and `EPIMETHEUS_PROJECT_NAME` / `PI_HINDSIGHT_PROJECT_NAME` are included too.
  */
 export const HINDSIGHT_ENV_KEYS = [
+  "EPIMETHEUS_ENABLED",
   "PI_HINDSIGHT_ENABLED",
   "HINDSIGHT_API_URL",
   "HINDSIGHT_API_KEY",
+  "EPIMETHEUS_BANK_ID",
   "PI_HINDSIGHT_BANK_ID",
+  "EPIMETHEUS_TOOLS_ENABLED",
   "PI_HINDSIGHT_TOOLS_ENABLED",
+  "EPIMETHEUS_AUTO_RECALL_ENABLED",
   "PI_HINDSIGHT_AUTO_RECALL_ENABLED",
+  "EPIMETHEUS_AUTO_RECALL_BUDGET",
   "PI_HINDSIGHT_AUTO_RECALL_BUDGET",
+  "EPIMETHEUS_AUTO_RETAIN_ENABLED",
   "PI_HINDSIGHT_AUTO_RETAIN_ENABLED",
+  "EPIMETHEUS_CONTEXT_PREFIX",
   "PI_HINDSIGHT_CONTEXT_PREFIX",
+  "EPIMETHEUS_CONTEXT_MAX_LENGTH",
   "PI_HINDSIGHT_CONTEXT_MAX_LENGTH",
+  "EPIMETHEUS_MAX_RECALL_TOKENS",
   "PI_HINDSIGHT_MAX_RECALL_TOKENS",
+  "EPIMETHEUS_RECALL_PROMPT_PREAMBLE",
   "PI_HINDSIGHT_RECALL_PROMPT_PREAMBLE",
+  "EPIMETHEUS_AUTO_RECALL_SHOW_DATETIME",
   "PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME",
-  "PI_HINDSIGHT_AUTO_RECALL_DISPLAY",
-  "PI_HINDSIGHT_AUTO_RECALL_PERSIST",
-  "PI_HINDSIGHT_AUTO_RECALL_ROLE",
-  "PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS",
-  "PI_HINDSIGHT_AUTO_RECALL_TYPES",
   "PI_HINDSIGHT_RECALL_SHOW_DATETIME",
+  "EPIMETHEUS_AUTO_RECALL_DISPLAY",
+  "PI_HINDSIGHT_AUTO_RECALL_DISPLAY",
+  "EPIMETHEUS_AUTO_RECALL_PERSIST",
+  "PI_HINDSIGHT_AUTO_RECALL_PERSIST",
+  "EPIMETHEUS_AUTO_RECALL_ROLE",
+  "PI_HINDSIGHT_AUTO_RECALL_ROLE",
+  "EPIMETHEUS_RECALL_MAX_QUERY_CHARS",
+  "PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS",
+  "EPIMETHEUS_AUTO_RECALL_TYPES",
+  "PI_HINDSIGHT_AUTO_RECALL_TYPES",
   "PI_HINDSIGHT_RECALL_TYPES",
+  "EPIMETHEUS_AUTO_RECALL_TAGS",
   "PI_HINDSIGHT_AUTO_RECALL_TAGS",
+  "EPIMETHEUS_AUTO_RECALL_TAGS_MATCH",
   "PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH",
+  "EPIMETHEUS_AUTO_RECALL_TAG_GROUPS",
   "PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS",
+  "EPIMETHEUS_CONSTANT_TAGS",
   "PI_HINDSIGHT_CONSTANT_TAGS",
+  "EPIMETHEUS_AUTO_FLUSH_SESSION_ON",
   "PI_HINDSIGHT_AUTO_FLUSH_SESSION_ON",
+  "EPIMETHEUS_AUTO_FLUSH_PENDING_ON",
   "PI_HINDSIGHT_AUTO_FLUSH_PENDING_ON",
+  "EPIMETHEUS_RETAIN_CONTENT",
   "PI_HINDSIGHT_RETAIN_CONTENT",
+  "EPIMETHEUS_STRIP",
   "PI_HINDSIGHT_STRIP",
-  "PI_HINDSIGHT_ENTITIES",
-  "PI_HINDSIGHT_STATUS_HEALTHY",
-  "PI_HINDSIGHT_STATUS_UNHEALTHY",
-  "PI_HINDSIGHT_OBSERVATION_SCOPES",
-  "PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT",
-  "PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH",
+  "EPIMETHEUS_TOOL_FILTER",
   "PI_HINDSIGHT_TOOL_FILTER",
+  "EPIMETHEUS_ENTITIES",
+  "PI_HINDSIGHT_ENTITIES",
+  "EPIMETHEUS_STATUS_HEALTHY",
+  "PI_HINDSIGHT_STATUS_HEALTHY",
+  "EPIMETHEUS_STATUS_UNHEALTHY",
+  "PI_HINDSIGHT_STATUS_UNHEALTHY",
+  "EPIMETHEUS_OBSERVATION_SCOPES",
+  "PI_HINDSIGHT_OBSERVATION_SCOPES",
+  "EPIMETHEUS_RETAIN_SESSIONS_BY_DEFAULT",
+  "PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT",
+  "EPIMETHEUS_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH",
+  "PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH",
+  "EPIMETHEUS_DEBUG",
   "PI_HINDSIGHT_DEBUG",
+  "EPIMETHEUS_PROJECT_NAME",
   "PI_HINDSIGHT_PROJECT_NAME",
 ];
 

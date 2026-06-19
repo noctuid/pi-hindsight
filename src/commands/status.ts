@@ -51,7 +51,9 @@ export function createStatusSubcommand(
           lines.push(`  Server: ${config.apiUrl} (unreachable: ${healthResult.error})`);
         }
       } else {
-        lines.push(`  Server: ${config.apiUrl} (not configured)`);
+        const server = config.apiUrl || "(not configured)";
+        const state = config.apiUrl ? "not checked: config invalid" : "not configured";
+        lines.push(`  Server: ${server} (${state})`);
       }
 
       // Session and queue info

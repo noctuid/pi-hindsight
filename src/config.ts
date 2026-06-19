@@ -1,10 +1,9 @@
 /**
- * Configuration loading for pi-hindsight extension.
+ * Configuration loading for the epimetheus extension.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
   Budget,
   TagGroupAndInput,
@@ -13,6 +12,8 @@ import type {
   TagGroupOrInput,
 } from "@vectorize-io/hindsight-client";
 import { type ParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser";
+import { prefixLog } from "./constants";
+import { getDataDir } from "./data-dir";
 
 function offsetToLineColumn(content: string, offset: number): { line: number; character: number } {
   let line = 1;
@@ -1138,7 +1139,7 @@ export function loadConfig(extensionsDir?: string): {
   const warnings: string[] = [];
 
   // Load from config file (prefer .jsonc over .json)
-  const dir = extensionsDir ?? join(getAgentDir(), "extensions", "pi-hindsight");
+  const dir = extensionsDir ?? getDataDir();
   const jsoncPath = join(dir, "config.jsonc");
   const jsonPath = join(dir, "config.json");
 
@@ -1195,75 +1196,201 @@ export function loadConfig(extensionsDir?: string): {
     }
   }
 
-  // Override with environment variables
-  const envMappings: Record<string, keyof HindsightConfig> = {
-    PI_HINDSIGHT_ENABLED: "enabled",
-    HINDSIGHT_API_URL: "apiUrl",
-    HINDSIGHT_API_KEY: "apiKey",
-    PI_HINDSIGHT_BANK_ID: "bankId",
-    PI_HINDSIGHT_TOOLS_ENABLED: "toolsEnabled",
-    PI_HINDSIGHT_AUTO_RECALL_ENABLED: "autoRecallEnabled",
-    PI_HINDSIGHT_AUTO_RECALL_BUDGET: "autoRecallBudget",
-    PI_HINDSIGHT_AUTO_RETAIN_ENABLED: "autoRetainEnabled",
-    PI_HINDSIGHT_CONTEXT_PREFIX: "hindsightContextPrefix",
-    PI_HINDSIGHT_CONTEXT_MAX_LENGTH: "hindsightContextMaxLength",
-    PI_HINDSIGHT_MAX_RECALL_TOKENS: "maxRecallTokens",
-    PI_HINDSIGHT_RECALL_PROMPT_PREAMBLE: "recallPromptPreamble",
-    PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME: "autoRecallShowDateTime",
-    PI_HINDSIGHT_AUTO_RECALL_DISPLAY: "autoRecallDisplay",
-    PI_HINDSIGHT_AUTO_RECALL_PERSIST: "autoRecallPersist",
-    PI_HINDSIGHT_AUTO_RECALL_ROLE: "autoRecallRole",
-    PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS: "recallMaxQueryChars",
-    PI_HINDSIGHT_AUTO_RECALL_TYPES: "autoRecallTypes",
-    PI_HINDSIGHT_AUTO_RECALL_TAGS: "autoRecallTags",
-    PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH: "autoRecallTagsMatch",
-    PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS: "autoRecallTagGroups",
-    PI_HINDSIGHT_CONSTANT_TAGS: "constantTags",
-    PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT: "retainSessionsByDefault",
-    PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH: "requireExtraContextBeforeFlush",
-    PI_HINDSIGHT_RETAIN_CONTENT: "retainContent",
-    PI_HINDSIGHT_STRIP: "strip",
-    PI_HINDSIGHT_TOOL_FILTER: "toolFilter",
-    PI_HINDSIGHT_ENTITIES: "entities",
-    PI_HINDSIGHT_OBSERVATION_SCOPES: "observationScopes",
-    PI_HINDSIGHT_STATUS_HEALTHY: "statusHealthy",
-    PI_HINDSIGHT_STATUS_UNHEALTHY: "statusUnhealthy",
-    PI_HINDSIGHT_AUTO_FLUSH_SESSION_ON: "autoFlushSessionOn",
-    PI_HINDSIGHT_AUTO_FLUSH_PENDING_ON: "autoFlushPendingOn",
-    PI_HINDSIGHT_DEBUG: "debug",
-  };
+  // Override with environment variables.
+  //
+  // Precedence per config key: (1) new `EPIMETHEUS_*` env var if set,
+  // (2) old `PI_HINDSIGHT_*` fallback if the new var is not set,
+  // (3) config file / defaults (already loaded into `config` above).
+  //
+  // `HINDSIGHT_API_URL` / `HINDSIGHT_API_KEY` are the official Hindsight service
+  // vars and are intentionally NOT renamed — they have a single env var and no
+  // `PI_HINDSIGHT_*` fallback alias. Every other (plugin-specific) var has a
+  // new `EPIMETHEUS_*` preferred name plus one or more legacy `PI_HINDSIGHT_*`
+  // fallback names. `envVars` records whichever env var was actually used.
+  const envMappings: {
+    configKey: keyof HindsightConfig;
+    preferred: string;
+    legacy?: string[];
+  }[] = [
+    { configKey: "enabled", preferred: "EPIMETHEUS_ENABLED", legacy: ["PI_HINDSIGHT_ENABLED"] },
+    // Official Hindsight service vars — single name, no rename, no fallback.
+    { configKey: "apiUrl", preferred: "HINDSIGHT_API_URL" },
+    { configKey: "apiKey", preferred: "HINDSIGHT_API_KEY" },
+    { configKey: "bankId", preferred: "EPIMETHEUS_BANK_ID", legacy: ["PI_HINDSIGHT_BANK_ID"] },
+    {
+      configKey: "toolsEnabled",
+      preferred: "EPIMETHEUS_TOOLS_ENABLED",
+      legacy: ["PI_HINDSIGHT_TOOLS_ENABLED"],
+    },
+    {
+      configKey: "autoRecallEnabled",
+      preferred: "EPIMETHEUS_AUTO_RECALL_ENABLED",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_ENABLED"],
+    },
+    {
+      configKey: "autoRecallBudget",
+      preferred: "EPIMETHEUS_AUTO_RECALL_BUDGET",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_BUDGET"],
+    },
+    {
+      configKey: "autoRetainEnabled",
+      preferred: "EPIMETHEUS_AUTO_RETAIN_ENABLED",
+      legacy: ["PI_HINDSIGHT_AUTO_RETAIN_ENABLED"],
+    },
+    {
+      configKey: "hindsightContextPrefix",
+      preferred: "EPIMETHEUS_CONTEXT_PREFIX",
+      legacy: ["PI_HINDSIGHT_CONTEXT_PREFIX"],
+    },
+    {
+      configKey: "hindsightContextMaxLength",
+      preferred: "EPIMETHEUS_CONTEXT_MAX_LENGTH",
+      legacy: ["PI_HINDSIGHT_CONTEXT_MAX_LENGTH"],
+    },
+    {
+      configKey: "maxRecallTokens",
+      preferred: "EPIMETHEUS_MAX_RECALL_TOKENS",
+      legacy: ["PI_HINDSIGHT_MAX_RECALL_TOKENS"],
+    },
+    {
+      configKey: "recallPromptPreamble",
+      preferred: "EPIMETHEUS_RECALL_PROMPT_PREAMBLE",
+      legacy: ["PI_HINDSIGHT_RECALL_PROMPT_PREAMBLE"],
+    },
+    {
+      configKey: "autoRecallShowDateTime",
+      preferred: "EPIMETHEUS_AUTO_RECALL_SHOW_DATETIME",
+      // Two legacy fallbacks: the renamed `AUTO_RECALL_*` form, then the older
+      // bare `RECALL_*` form (kept for pre-rename users).
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME", "PI_HINDSIGHT_RECALL_SHOW_DATETIME"],
+    },
+    {
+      configKey: "autoRecallDisplay",
+      preferred: "EPIMETHEUS_AUTO_RECALL_DISPLAY",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_DISPLAY"],
+    },
+    {
+      configKey: "autoRecallPersist",
+      preferred: "EPIMETHEUS_AUTO_RECALL_PERSIST",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_PERSIST"],
+    },
+    {
+      configKey: "autoRecallRole",
+      preferred: "EPIMETHEUS_AUTO_RECALL_ROLE",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_ROLE"],
+    },
+    {
+      configKey: "recallMaxQueryChars",
+      preferred: "EPIMETHEUS_RECALL_MAX_QUERY_CHARS",
+      legacy: ["PI_HINDSIGHT_RECALL_MAX_QUERY_CHARS"],
+    },
+    {
+      configKey: "autoRecallTypes",
+      preferred: "EPIMETHEUS_AUTO_RECALL_TYPES",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_TYPES", "PI_HINDSIGHT_RECALL_TYPES"],
+    },
+    {
+      configKey: "autoRecallTags",
+      preferred: "EPIMETHEUS_AUTO_RECALL_TAGS",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_TAGS"],
+    },
+    {
+      configKey: "autoRecallTagsMatch",
+      preferred: "EPIMETHEUS_AUTO_RECALL_TAGS_MATCH",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH"],
+    },
+    {
+      configKey: "autoRecallTagGroups",
+      preferred: "EPIMETHEUS_AUTO_RECALL_TAG_GROUPS",
+      legacy: ["PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS"],
+    },
+    {
+      configKey: "constantTags",
+      preferred: "EPIMETHEUS_CONSTANT_TAGS",
+      legacy: ["PI_HINDSIGHT_CONSTANT_TAGS"],
+    },
+    {
+      configKey: "retainSessionsByDefault",
+      preferred: "EPIMETHEUS_RETAIN_SESSIONS_BY_DEFAULT",
+      legacy: ["PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT"],
+    },
+    {
+      configKey: "requireExtraContextBeforeFlush",
+      preferred: "EPIMETHEUS_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH",
+      legacy: ["PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH"],
+    },
+    {
+      configKey: "retainContent",
+      preferred: "EPIMETHEUS_RETAIN_CONTENT",
+      legacy: ["PI_HINDSIGHT_RETAIN_CONTENT"],
+    },
+    { configKey: "strip", preferred: "EPIMETHEUS_STRIP", legacy: ["PI_HINDSIGHT_STRIP"] },
+    {
+      configKey: "toolFilter",
+      preferred: "EPIMETHEUS_TOOL_FILTER",
+      legacy: ["PI_HINDSIGHT_TOOL_FILTER"],
+    },
+    {
+      configKey: "entities",
+      preferred: "EPIMETHEUS_ENTITIES",
+      legacy: ["PI_HINDSIGHT_ENTITIES"],
+    },
+    {
+      configKey: "observationScopes",
+      preferred: "EPIMETHEUS_OBSERVATION_SCOPES",
+      legacy: ["PI_HINDSIGHT_OBSERVATION_SCOPES"],
+    },
+    {
+      configKey: "statusHealthy",
+      preferred: "EPIMETHEUS_STATUS_HEALTHY",
+      legacy: ["PI_HINDSIGHT_STATUS_HEALTHY"],
+    },
+    {
+      configKey: "statusUnhealthy",
+      preferred: "EPIMETHEUS_STATUS_UNHEALTHY",
+      legacy: ["PI_HINDSIGHT_STATUS_UNHEALTHY"],
+    },
+    {
+      configKey: "autoFlushSessionOn",
+      preferred: "EPIMETHEUS_AUTO_FLUSH_SESSION_ON",
+      legacy: ["PI_HINDSIGHT_AUTO_FLUSH_SESSION_ON"],
+    },
+    {
+      configKey: "autoFlushPendingOn",
+      preferred: "EPIMETHEUS_AUTO_FLUSH_PENDING_ON",
+      legacy: ["PI_HINDSIGHT_AUTO_FLUSH_PENDING_ON"],
+    },
+    { configKey: "debug", preferred: "EPIMETHEUS_DEBUG", legacy: ["PI_HINDSIGHT_DEBUG"] },
+  ];
 
   const envVars: string[] = [];
-  for (const [envVar, configKey] of Object.entries(envMappings)) {
-    const value = process.env[envVar];
-    if (value !== undefined) {
-      envVars.push(envVar);
-      const warning = setConfigValue(config, configKey, value);
+  for (const { configKey, preferred, legacy } of envMappings) {
+    // Preferred name first (new EPIMETHEUS_* or the official HINDSIGHT_API_*).
+    const preferredValue = process.env[preferred];
+    if (preferredValue !== undefined) {
+      envVars.push(preferred);
+      const warning = setConfigValue(config, configKey, preferredValue);
       if (warning) warnings.push(warning);
+      continue;
     }
-  }
-
-  // Backward compat: fallback to old env var names if the new ones weren't set
-  const oldRecallShowDateTime = process.env.PI_HINDSIGHT_RECALL_SHOW_DATETIME;
-  if (
-    oldRecallShowDateTime !== undefined &&
-    !envVars.includes("PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME")
-  ) {
-    envVars.push("PI_HINDSIGHT_RECALL_SHOW_DATETIME");
-    const warning = setConfigValue(config, "autoRecallShowDateTime", oldRecallShowDateTime);
-    if (warning) warnings.push(warning);
-  }
-  const oldRecallTypes = process.env.PI_HINDSIGHT_RECALL_TYPES;
-  if (oldRecallTypes !== undefined && !envVars.includes("PI_HINDSIGHT_AUTO_RECALL_TYPES")) {
-    envVars.push("PI_HINDSIGHT_RECALL_TYPES");
-    const warning = setConfigValue(config, "autoRecallTypes", oldRecallTypes);
-    if (warning) warnings.push(warning);
+    // Then each legacy fallback in order; first one set wins.
+    if (legacy) {
+      for (const legacyVar of legacy) {
+        const legacyValue = process.env[legacyVar];
+        if (legacyValue !== undefined) {
+          envVars.push(legacyVar);
+          const warning = setConfigValue(config, configKey, legacyValue);
+          if (warning) warnings.push(warning);
+          break;
+        }
+      }
+    }
   }
 
   return {
     config,
     configPath: configPath ?? undefined,
-    warning: warnings.length > 0 ? warnings.map((w) => `pi-hindsight: ${w}`).join("; ") : undefined,
+    warning: warnings.length > 0 ? warnings.map(prefixLog).join("; ") : undefined,
     envVars,
   };
 }
@@ -1293,7 +1420,7 @@ export function validateConfig(config: HindsightConfig): {
   }
 
   if (!config.bankId) {
-    errors.push("bankId is required (set in config.json or PI_HINDSIGHT_BANK_ID env var)");
+    errors.push("bankId is required (set in config.json or EPIMETHEUS_BANK_ID env var)");
   }
 
   // Validate toolsEnabled - reset to default on invalid values, deduplicate on duplicates
@@ -1678,6 +1805,6 @@ export function validateConfig(config: HindsightConfig): {
     );
   }
 
-  const prefix = (s: string) => `pi-hindsight: ${s}`;
+  const prefix = prefixLog;
   return { valid: errors.length === 0, errors: errors.map(prefix), warnings: warnings.map(prefix) };
 }
