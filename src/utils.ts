@@ -99,11 +99,13 @@ export function getBasedir(cwd: string): string {
 
 /**
  * Get the project name, falling back to basedir if not set via env var.
- * Uses PI_HINDSIGHT_PROJECT_NAME environment variable if set,
- * otherwise derives from the cwd basename.
+ * Reads `EPIMETHEUS_PROJECT_NAME` if set, with `PI_HINDSIGHT_PROJECT_NAME` as a
+ * legacy fallback; otherwise derives from the cwd basename.
  */
 export function getProjectName(cwd: string): string {
-  return process.env.PI_HINDSIGHT_PROJECT_NAME || basename(cwd);
+  return (
+    process.env.EPIMETHEUS_PROJECT_NAME || process.env.PI_HINDSIGHT_PROJECT_NAME || basename(cwd)
+  );
 }
 
 /**

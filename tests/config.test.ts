@@ -3,7 +3,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type HindsightConfig,
@@ -61,8 +62,10 @@ const validConfig: HindsightConfig = {
   autoFlushPendingOn: ["quit"],
 };
 
-// Temp directory for file loading tests
-const TEST_DIR = "/tmp/pi-hindsight-config-test";
+// Per-test temp directory for file-loading tests. Recreated fresh in beforeEach
+// so tests never share state, and removed in afterEach. (Tests that need
+// agent-dir semantics use setupTempAgentDir() from fixtures instead.)
+let TEST_DIR = mkdtempSync(join(tmpdir(), "epimetheus-config-test-"));
 
 let restoreEnv: () => void;
 
@@ -72,7 +75,7 @@ beforeEach(() => {
   if (existsSync(TEST_DIR)) {
     rmSync(TEST_DIR, { recursive: true, force: true });
   }
-  mkdirSync(TEST_DIR, { recursive: true });
+  TEST_DIR = mkdtempSync(join(tmpdir(), "epimetheus-config-test-"));
 });
 
 afterEach(() => {
@@ -131,7 +134,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(
-      "pi-hindsight: apiUrl is required (set in config.json or HINDSIGHT_API_URL env var)"
+      "epimetheus: apiUrl is required (set in config.json or HINDSIGHT_API_URL env var)"
     );
   });
 
@@ -140,7 +143,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(
-      "pi-hindsight: apiKey is required (set in config.json or HINDSIGHT_API_KEY env var)"
+      "epimetheus: apiKey is required (set in config.json or HINDSIGHT_API_KEY env var)"
     );
   });
 
@@ -149,7 +152,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(
-      "pi-hindsight: bankId is required (set in config.json or PI_HINDSIGHT_BANK_ID env var)"
+      "epimetheus: bankId is required (set in config.json or EPIMETHEUS_BANK_ID env var)"
     );
   });
 
@@ -199,7 +202,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      'pi-hindsight: retainContent.user cannot be empty. Using default: ["text"].'
+      'epimetheus: retainContent.user cannot be empty. Using default: ["text"].'
     );
     expect(config.retainContent.user).toEqual(["text"]);
   });
@@ -236,7 +239,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: autoRecallDisplay: true will not show new recall messages when autoRecallPersist: false (new recalls are ephemeral and not added to chat; only the most recent is available via /hindsight popup). However, autoRecallDisplay still affects rendering of previously persisted recall messages in session files (e.g. when enabled: false)."
+      "epimetheus: autoRecallDisplay: true will not show new recall messages when autoRecallPersist: false (new recalls are ephemeral and not added to chat; only the most recent is available via /hindsight popup). However, autoRecallDisplay still affects rendering of previously persisted recall messages in session files (e.g. when enabled: false)."
     );
   });
 
@@ -252,7 +255,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: hindsightContextMaxLength must be >= 0. Using default: 100."
+      "epimetheus: hindsightContextMaxLength must be >= 0. Using default: 100."
     );
     expect(config.hindsightContextMaxLength).toBe(100);
   });
@@ -276,7 +279,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: recallMaxQueryChars must be >= 1. Using default: 800."
+      "epimetheus: recallMaxQueryChars must be >= 1. Using default: 800."
     );
     expect(config.recallMaxQueryChars).toBe(800);
   });
@@ -293,7 +296,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: retainContent.assistant contains duplicate values. Using deduplicated value."
+      "epimetheus: retainContent.assistant contains duplicate values. Using deduplicated value."
     );
     expect(config.retainContent.assistant).toEqual(["text"]);
   });
@@ -309,7 +312,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: strip.topLevel contains duplicate values. Using deduplicated value."
+      "epimetheus: strip.topLevel contains duplicate values. Using deduplicated value."
     );
     expect(config.strip.topLevel).toEqual(["type"]);
     expect(result.errors).toHaveLength(0);
@@ -325,7 +328,7 @@ describe("validateConfig", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(true);
     expect(result.warnings).toContain(
-      "pi-hindsight: autoRecallTypes contains duplicate values. Using deduplicated value."
+      "epimetheus: autoRecallTypes contains duplicate values. Using deduplicated value."
     );
     expect(config.autoRecallTypes).toEqual(["observation"]);
   });
@@ -457,7 +460,7 @@ describe("validateConfig resets invalid values to defaults", () => {
     expect(config.observationScopes).toBeNull();
     expect(warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -470,7 +473,7 @@ describe("validateConfig resets invalid values to defaults", () => {
     expect(config.observationScopes).toBeNull();
     expect(warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -483,7 +486,7 @@ describe("validateConfig resets invalid values to defaults", () => {
     expect(config.observationScopes).toBeNull();
     expect(warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -713,7 +716,7 @@ describe("loadConfig", () => {
 
     const { warning } = loadConfig(TEST_DIR);
     expect(warning).toBeDefined();
-    expect(warning).toContain("pi-hindsight: Failed to parse config file");
+    expect(warning).toContain("epimetheus: Failed to parse config file");
     expect(warning).toContain("parse error(s)");
     expect(warning).toContain("Details:");
     expect(warning).toMatch(/line \d+, character \d+: \w+/);
@@ -730,11 +733,11 @@ describe("loadConfig", () => {
     );
 
     const { warning } = loadConfig(TEST_DIR);
-    expect(warning).toContain("pi-hindsight: Unknown config key in file: unknownKey");
+    expect(warning).toContain("epimetheus: Unknown config key in file: unknownKey");
     expect(warning).toContain('(value: "value")');
   });
 
-  it("rejects projectName in config file (PI_HINDSIGHT_PROJECT_NAME is env-only)", () => {
+  it("rejects projectName in config file (EPIMETHEUS_PROJECT_NAME is env-only)", () => {
     writeFileSync(
       join(TEST_DIR, "config.json"),
       JSON.stringify({
@@ -745,7 +748,7 @@ describe("loadConfig", () => {
     );
 
     const { warning } = loadConfig(TEST_DIR);
-    expect(warning).toContain("pi-hindsight: Unknown config key in file: projectName");
+    expect(warning).toContain("epimetheus: Unknown config key in file: projectName");
     expect(warning).toContain('(value: "my-project")');
   });
 
@@ -776,7 +779,7 @@ describe("loadConfig", () => {
     expect(config.autoRecallDisplay).toBe(true);
   });
 
-  it("autoRecallDisplay can be set via PI_HINDSIGHT_AUTO_RECALL_DISPLAY env var", () => {
+  it("autoRecallDisplay falls back to legacy PI_HINDSIGHT_AUTO_RECALL_DISPLAY env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_DISPLAY = "true";
 
     const { config } = loadConfig(TEST_DIR);
@@ -802,7 +805,7 @@ describe("loadConfig", () => {
     expect(config.autoRecallPersist).toBe(true);
   });
 
-  it("autoRecallPersist can be set via PI_HINDSIGHT_AUTO_RECALL_PERSIST env var", () => {
+  it("autoRecallPersist falls back to legacy PI_HINDSIGHT_AUTO_RECALL_PERSIST env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_PERSIST = "true";
 
     const { config } = loadConfig(TEST_DIR);
@@ -832,7 +835,7 @@ describe("loadConfig", () => {
     expect(config.autoRecallRole).toBe("assistant");
   });
 
-  it("autoRecallRole can be set via PI_HINDSIGHT_AUTO_RECALL_ROLE env var", () => {
+  it("autoRecallRole falls back to legacy PI_HINDSIGHT_AUTO_RECALL_ROLE env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_ROLE = "assistant";
 
     const { config } = loadConfig(TEST_DIR);
@@ -906,7 +909,7 @@ describe("loadConfig", () => {
     expect(config.toolsEnabled).toEqual(["retain", "recall"]);
   });
 
-  it("toolsEnabled can be set to array via PI_HINDSIGHT_TOOLS_ENABLED env var", () => {
+  it("toolsEnabled accepts an array via legacy PI_HINDSIGHT_TOOLS_ENABLED env var", () => {
     process.env.PI_HINDSIGHT_TOOLS_ENABLED = '["retain"]';
 
     const { config } = loadConfig(TEST_DIR);
@@ -1098,21 +1101,21 @@ describe("loadConfig", () => {
   });
 
   // Backward compatibility: old env var names should still work
-  it("falls back to old env var PI_HINDSIGHT_RECALL_TYPES", () => {
+  it("falls back to legacy PI_HINDSIGHT_RECALL_TYPES (oldest fallback)", () => {
     process.env.PI_HINDSIGHT_RECALL_TYPES = '["world", "experience"]';
 
     const { config } = loadConfig(TEST_DIR);
     expect(config.autoRecallTypes).toEqual(["world", "experience"]);
   });
 
-  it("falls back to old env var PI_HINDSIGHT_RECALL_SHOW_DATETIME", () => {
+  it("falls back to legacy PI_HINDSIGHT_RECALL_SHOW_DATETIME (oldest fallback)", () => {
     process.env.PI_HINDSIGHT_RECALL_SHOW_DATETIME = "false";
 
     const { config } = loadConfig(TEST_DIR);
     expect(config.autoRecallShowDateTime).toBe(false);
   });
 
-  it("prioritizes new env var PI_HINDSIGHT_AUTO_RECALL_TYPES over old PI_HINDSIGHT_RECALL_TYPES", () => {
+  it("prioritizes legacy PI_HINDSIGHT_AUTO_RECALL_TYPES over the older PI_HINDSIGHT_RECALL_TYPES", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_TYPES = '["world"]';
     process.env.PI_HINDSIGHT_RECALL_TYPES = '["experience"]';
 
@@ -1120,7 +1123,7 @@ describe("loadConfig", () => {
     expect(config.autoRecallTypes).toEqual(["world"]);
   });
 
-  it("prioritizes new env var PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME over old PI_HINDSIGHT_RECALL_SHOW_DATETIME", () => {
+  it("prioritizes legacy PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME over the older PI_HINDSIGHT_RECALL_SHOW_DATETIME", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME = "true";
     process.env.PI_HINDSIGHT_RECALL_SHOW_DATETIME = "false";
 
@@ -1155,6 +1158,55 @@ describe("loadConfig", () => {
 
     const { envVars } = loadConfig(TEST_DIR);
     expect(envVars).toContain("PI_HINDSIGHT_RECALL_SHOW_DATETIME");
+    expect(envVars).not.toContain("PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME");
+  });
+
+  // EPIMETHEUS_* rename: new preferred names take effect and are reported in
+  // envVars; old PI_HINDSIGHT_* names still work as legacy fallbacks.
+  it("reads a value from the new EPIMETHEUS_* env var", () => {
+    process.env.EPIMETHEUS_BANK_ID = "new-bank";
+    expect(loadConfig(TEST_DIR).config.bankId).toBe("new-bank");
+  });
+
+  it("reports the new EPIMETHEUS_* name in envVars when it is used", () => {
+    process.env.EPIMETHEUS_AUTO_RECALL_DISPLAY = "true";
+    const { envVars } = loadConfig(TEST_DIR);
+    expect(envVars).toContain("EPIMETHEUS_AUTO_RECALL_DISPLAY");
+    // Legacy name is NOT reported when only the new one is set.
+    expect(envVars).not.toContain("PI_HINDSIGHT_AUTO_RECALL_DISPLAY");
+  });
+
+  it("preserves the official HINDSIGHT_API_URL name (not renamed, no PI_ fallback)", () => {
+    process.env.HINDSIGHT_API_URL = "https://official.example";
+    const { config, envVars } = loadConfig(TEST_DIR);
+    expect(config.apiUrl).toBe("https://official.example");
+    expect(envVars).toContain("HINDSIGHT_API_URL");
+    // No EPIMETHEUS_/PI_ alias exists for the official API vars.
+    expect(envVars).not.toContain("EPIMETHEUS_API_URL");
+    expect(envVars).not.toContain("PI_HINDSIGHT_API_URL");
+  });
+
+  it("prioritizes EPIMETHEUS_* over the legacy PI_HINDSIGHT_* fallback", () => {
+    process.env.EPIMETHEUS_AUTO_RECALL_TYPES = '["world"]';
+    process.env.PI_HINDSIGHT_AUTO_RECALL_TYPES = '["experience"]';
+    process.env.PI_HINDSIGHT_RECALL_TYPES = '["observation"]';
+
+    const { config, envVars } = loadConfig(TEST_DIR);
+    expect(config.autoRecallTypes).toEqual(["world"]);
+    expect(envVars).toContain("EPIMETHEUS_AUTO_RECALL_TYPES");
+    // Legacy fallbacks were not used, so they are not reported.
+    expect(envVars).not.toContain("PI_HINDSIGHT_AUTO_RECALL_TYPES");
+    expect(envVars).not.toContain("PI_HINDSIGHT_RECALL_TYPES");
+  });
+
+  it("falls back through legacy chain: EPIMETHEUS unset → PI_HINDSIGHT_AUTO_RECALL_* → PI_HINDSIGHT_RECALL_*", () => {
+    // EPIMETHEUS_AUTO_RECALL_SHOW_DATETIME unset; the renamed legacy form is
+    // absent too, so the oldest fallback (PI_HINDSIGHT_RECALL_SHOW_DATETIME) is used.
+    process.env.PI_HINDSIGHT_RECALL_SHOW_DATETIME = "false";
+    const { config, envVars } = loadConfig(TEST_DIR);
+    expect(config.autoRecallShowDateTime).toBe(false);
+    expect(envVars).toContain("PI_HINDSIGHT_RECALL_SHOW_DATETIME");
+    expect(envVars).not.toContain("EPIMETHEUS_AUTO_RECALL_SHOW_DATETIME");
     expect(envVars).not.toContain("PI_HINDSIGHT_AUTO_RECALL_SHOW_DATETIME");
   });
 
@@ -1630,7 +1682,7 @@ describe("loadConfig", () => {
   });
 
   // retainContent env var tests
-  it("retainContent can be set via PI_HINDSIGHT_RETAIN_CONTENT env var as JSON string", () => {
+  it("retainContent falls back to legacy PI_HINDSIGHT_RETAIN_CONTENT env var as JSON string", () => {
     process.env.PI_HINDSIGHT_RETAIN_CONTENT =
       '{"assistant":["text"],"user":["text","image"],"toolResult":[]}';
 
@@ -1643,7 +1695,7 @@ describe("loadConfig", () => {
     expect(warning).toBeUndefined();
   });
 
-  it("warns on invalid JSON in PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
+  it("warns on invalid JSON in legacy PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
     process.env.PI_HINDSIGHT_RETAIN_CONTENT = "not-json";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1656,7 +1708,7 @@ describe("loadConfig", () => {
     expect(warning).toContain("retainContent contains invalid JSON");
   });
 
-  it("warns on non-object JSON in PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
+  it("warns on non-object JSON in legacy PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
     process.env.PI_HINDSIGHT_RETAIN_CONTENT = '["not-an-object"]';
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1669,7 +1721,7 @@ describe("loadConfig", () => {
     expect(warning).toContain("retainContent must be a JSON object");
   });
 
-  it("warns on null JSON in PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
+  it("warns on null JSON in legacy PI_HINDSIGHT_RETAIN_CONTENT env var", () => {
     process.env.PI_HINDSIGHT_RETAIN_CONTENT = "null";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1707,7 +1759,7 @@ describe("loadConfig", () => {
   });
 
   // strip env var tests
-  it("strip can be set via PI_HINDSIGHT_STRIP env var as JSON string", () => {
+  it("strip falls back to legacy PI_HINDSIGHT_STRIP env var as JSON string", () => {
     process.env.PI_HINDSIGHT_STRIP = '{"topLevel":[],"message":["toolCallId"]}';
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1718,7 +1770,7 @@ describe("loadConfig", () => {
     expect(warning).toBeUndefined();
   });
 
-  it("warns on invalid JSON in PI_HINDSIGHT_STRIP env var", () => {
+  it("warns on invalid JSON in legacy PI_HINDSIGHT_STRIP env var", () => {
     process.env.PI_HINDSIGHT_STRIP = "not-json";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1739,7 +1791,7 @@ describe("loadConfig", () => {
     expect(warning).toContain("strip contains invalid JSON");
   });
 
-  it("warns on non-object JSON in PI_HINDSIGHT_STRIP env var", () => {
+  it("warns on non-object JSON in legacy PI_HINDSIGHT_STRIP env var", () => {
     process.env.PI_HINDSIGHT_STRIP = "42";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1870,14 +1922,14 @@ describe("loadConfig", () => {
     expect(config.statusUnhealthy).toBe("❌");
   });
 
-  it("statusHealthy can be set via PI_HINDSIGHT_STATUS_HEALTHY env var", () => {
+  it("statusHealthy falls back to legacy PI_HINDSIGHT_STATUS_HEALTHY env var", () => {
     process.env.PI_HINDSIGHT_STATUS_HEALTHY = "✅";
 
     const { config } = loadConfig(TEST_DIR);
     expect(config.statusHealthy).toBe("✅");
   });
 
-  it("statusUnhealthy can be set via PI_HINDSIGHT_STATUS_UNHEALTHY env var", () => {
+  it("statusUnhealthy falls back to legacy PI_HINDSIGHT_STATUS_UNHEALTHY env var", () => {
     process.env.PI_HINDSIGHT_STATUS_UNHEALTHY = "❌";
 
     const { config } = loadConfig(TEST_DIR);
@@ -1904,7 +1956,7 @@ describe("loadConfig", () => {
     expect(config.retainSessionsByDefault).toBe(false);
   });
 
-  it("retainSessionsByDefault can be set via PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT env var", () => {
+  it("retainSessionsByDefault falls back to legacy PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT env var", () => {
     process.env.PI_HINDSIGHT_RETAIN_SESSIONS_BY_DEFAULT = "false";
 
     const { config } = loadConfig(TEST_DIR);
@@ -1935,7 +1987,7 @@ describe("loadConfig", () => {
     expect(config.requireExtraContextBeforeFlush).toBe(true);
   });
 
-  it("requireExtraContextBeforeFlush can be set via PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH env var", () => {
+  it("requireExtraContextBeforeFlush falls back to legacy PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH env var", () => {
     process.env.PI_HINDSIGHT_REQUIRE_EXTRA_CONTEXT_BEFORE_FLUSH = "true";
 
     const { config } = loadConfig(TEST_DIR);
@@ -1962,14 +2014,14 @@ describe("loadConfig", () => {
     expect(config.debug).toBe(true);
   });
 
-  it("debug can be set via PI_HINDSIGHT_DEBUG env var", () => {
+  it("debug falls back to legacy PI_HINDSIGHT_DEBUG env var", () => {
     process.env.PI_HINDSIGHT_DEBUG = "true";
 
     const { config } = loadConfig(TEST_DIR);
     expect(config.debug).toBe(true);
   });
 
-  it("does not warn on valid boolean false for PI_HINDSIGHT_DEBUG env var", () => {
+  it("does not warn on valid boolean false for legacy PI_HINDSIGHT_DEBUG env var", () => {
     process.env.PI_HINDSIGHT_DEBUG = "false";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -1977,7 +2029,7 @@ describe("loadConfig", () => {
     expect(warning).toBeUndefined();
   });
 
-  it("warns on invalid boolean value for PI_HINDSIGHT_DEBUG env var", () => {
+  it("warns on invalid boolean value for legacy PI_HINDSIGHT_DEBUG env var", () => {
     process.env.PI_HINDSIGHT_DEBUG = "yes";
 
     const { config, warning } = loadConfig(TEST_DIR);
@@ -2026,7 +2078,7 @@ describe("loadConfig", () => {
     expect(config.toolFilter.toolResult).toEqual({ exclude: ["bash"] });
   });
 
-  it("toolFilter can be set via PI_HINDSIGHT_TOOL_FILTER env var", () => {
+  it("toolFilter falls back to legacy PI_HINDSIGHT_TOOL_FILTER env var", () => {
     process.env.PI_HINDSIGHT_TOOL_FILTER = JSON.stringify({
       toolCall: { exclude: ["bash"] },
     });
@@ -2039,7 +2091,7 @@ describe("loadConfig", () => {
     process.env.PI_HINDSIGHT_TOOL_FILTER = "not-json";
 
     const { config, warning } = loadConfig(TEST_DIR);
-    expect(warning).toContain("pi-hindsight: toolFilter contains invalid JSON");
+    expect(warning).toContain("epimetheus: toolFilter contains invalid JSON");
     // Falls back to default (not empty {}) on parse errors
     expect((config.toolFilter.toolCall as { exclude: string[] }).exclude).toContain("grep");
     expect((config.toolFilter.toolResult as { exclude: string[] }).exclude).toContain("grep");
@@ -2055,7 +2107,7 @@ describe("loadConfig", () => {
 
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: toolFilter.toolCall cannot have both \'include\' and \'exclude\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
+      'epimetheus: toolFilter.toolCall cannot have both \'include\' and \'exclude\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
     );
     expect(config.toolFilter.toolCall).toEqual({
       exclude: ["grep", "find", "ls", "read", "hindsight_retain"],
@@ -2072,7 +2124,7 @@ describe("loadConfig", () => {
 
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: toolFilter.toolCall.include cannot be empty. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
+      'epimetheus: toolFilter.toolCall.include cannot be empty. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
     );
     expect(config.toolFilter.toolCall).toEqual({
       exclude: ["grep", "find", "ls", "read", "hindsight_retain"],
@@ -2089,7 +2141,7 @@ describe("loadConfig", () => {
 
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: toolFilter.toolResult.exclude cannot be empty. Using default: {"exclude":["grep","find","ls","write","edit","hindsight_retain","hindsight_recall","hindsight_reflect"]}.'
+      'epimetheus: toolFilter.toolResult.exclude cannot be empty. Using default: {"exclude":["grep","find","ls","write","edit","hindsight_retain","hindsight_recall","hindsight_reflect"]}.'
     );
     expect(config.toolFilter.toolResult).toEqual({
       exclude: [
@@ -2115,7 +2167,7 @@ describe("loadConfig", () => {
 
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: toolFilter.toolCall has unknown key \'blocklist\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
+      'epimetheus: toolFilter.toolCall has unknown key \'blocklist\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
     );
     expect(config.toolFilter.toolCall).toEqual({
       exclude: ["grep", "find", "ls", "read", "hindsight_retain"],
@@ -2132,7 +2184,7 @@ describe("loadConfig", () => {
 
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: toolFilter.toolCall must have either \'include\' or \'exclude\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
+      'epimetheus: toolFilter.toolCall must have either \'include\' or \'exclude\'. Using default: {"exclude":["grep","find","ls","read","hindsight_retain"]}.'
     );
     expect(config.toolFilter.toolCall).toEqual({
       exclude: ["grep", "find", "ls", "read", "hindsight_retain"],
@@ -2152,7 +2204,7 @@ describe("loadConfig", () => {
     const { config, warning } = loadConfig(TEST_DIR);
     // Falls back to default
     expect((config.toolFilter.toolCall as { exclude: string[] }).exclude).toContain("grep");
-    expect(warning).toContain("pi-hindsight: toolFilter must be an object, got number");
+    expect(warning).toContain("epimetheus: toolFilter must be an object, got number");
   });
 
   it("does not warn on null toolFilter (might be intentional)", () => {
@@ -2202,7 +2254,7 @@ describe("observationScopes", () => {
     expect(config.observationScopes).toBe(null);
     const { errors } = validateConfig(config);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2244,10 +2296,10 @@ describe("observationScopes", () => {
     );
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
     const { errors } = validateConfig(config);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2270,10 +2322,10 @@ describe("observationScopes", () => {
     process.env.PI_HINDSIGHT_BANK_ID = "test-bank";
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
     const { errors } = validateConfig(config);
     expect(errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2281,7 +2333,7 @@ describe("observationScopes", () => {
     process.env.PI_HINDSIGHT_OBSERVATION_SCOPES = "invalid_value";
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
   });
 
   it("supports placeholder syntax in arrays", () => {
@@ -2323,7 +2375,7 @@ describe("observationScopes", () => {
     );
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
   });
 
   it("rejects empty inner array", () => {
@@ -2337,7 +2389,7 @@ describe("observationScopes", () => {
     );
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
   });
 
   it("rejects non-array inner values", () => {
@@ -2351,7 +2403,7 @@ describe("observationScopes", () => {
     );
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe(null);
-    expect(warning).toContain("pi-hindsight: observationScopes is required");
+    expect(warning).toContain("epimetheus: observationScopes is required");
   });
 
   it("warns on non-exact placeholder in tag string", () => {
@@ -2401,7 +2453,7 @@ describe("validateConfig for observationScopes", () => {
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2413,11 +2465,11 @@ describe("validateConfig for observationScopes", () => {
     const result = validateConfig(config);
     expect(result.valid).toBe(false);
     expect(result.warnings).toContain(
-      "pi-hindsight: observationScopes: array must not be empty. Using default (null)."
+      "epimetheus: observationScopes: array must not be empty. Using default (null)."
     );
     expect(config.observationScopes).toBeNull();
     expect(result.errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2431,7 +2483,7 @@ describe("validateConfig for observationScopes", () => {
     expect(result.warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(config.observationScopes).toBeNull();
     expect(result.errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2445,7 +2497,7 @@ describe("validateConfig for observationScopes", () => {
     expect(result.warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(config.observationScopes).toBeNull();
     expect(result.errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2459,7 +2511,7 @@ describe("validateConfig for observationScopes", () => {
     expect(result.warnings.some((w) => w.includes("Using default (null)"))).toBe(true);
     expect(config.observationScopes).toBeNull();
     expect(result.errors).toContain(
-      "pi-hindsight: observationScopes is required (must be a preset string or an array of tag arrays)"
+      "epimetheus: observationScopes is required (must be a preset string or an array of tag arrays)"
     );
   });
 
@@ -2704,7 +2756,7 @@ describe("autoRecallTags", () => {
     expect(config.autoRecallTags).toBe(null);
   });
 
-  it("autoRecallTags can be set via PI_HINDSIGHT_AUTO_RECALL_TAGS env var", () => {
+  it("autoRecallTags falls back to legacy PI_HINDSIGHT_AUTO_RECALL_TAGS env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_TAGS = '["{project}","user:alice"]';
     const { config } = loadConfig(TEST_DIR);
     expect(config.autoRecallTags).toEqual(["{project}", "user:alice"]);
@@ -2750,7 +2802,7 @@ describe("autoRecallTags", () => {
     expect(config.autoRecallTagsMatch).toBe("all_strict");
   });
 
-  it("autoRecallTagsMatch can be set via PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH env var", () => {
+  it("autoRecallTagsMatch falls back to legacy PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_TAGS_MATCH = "any_strict";
     const { config } = loadConfig(TEST_DIR);
     expect(config.autoRecallTagsMatch).toBe("any_strict");
@@ -2806,7 +2858,7 @@ describe("autoRecallTags", () => {
     );
     const { config, warning } = loadConfig(TEST_DIR);
     expect(config.autoRecallTags).toBe(null);
-    expect(warning).toContain("pi-hindsight: autoRecallTags must be a JSON array of strings");
+    expect(warning).toContain("epimetheus: autoRecallTags must be a JSON array of strings");
   });
 
   it("validateConfig warns on invalid autoRecallTagsMatch", () => {
@@ -2817,7 +2869,7 @@ describe("autoRecallTags", () => {
     };
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'pi-hindsight: autoRecallTagsMatch: invalid value "invalid". Expected one of: any, all, any_strict, all_strict. Using default: any.'
+      'epimetheus: autoRecallTagsMatch: invalid value "invalid". Expected one of: any, all, any_strict, all_strict. Using default: any.'
     );
     expect(config.autoRecallTagsMatch).toBe("any");
   });
@@ -3017,7 +3069,7 @@ describe("autoRecallTagGroups", () => {
     expect(config.autoRecallTagGroups).toBe(null);
   });
 
-  it("can be set via PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS env var", () => {
+  it("autoRecallTagGroups falls back to legacy PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS env var", () => {
     process.env.PI_HINDSIGHT_AUTO_RECALL_TAG_GROUPS =
       '[{"tags":["project:myapp"],"match":"any_strict"}]';
     const { config } = loadConfig(TEST_DIR);

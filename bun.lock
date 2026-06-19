@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-hindsight",
+      "name": "epimetheus",
       "dependencies": {
         "@vectorize-io/hindsight-client": "0.8.3",
         "jsonc-parser": "^3.3.1",

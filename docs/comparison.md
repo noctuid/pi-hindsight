@@ -1,6 +1,6 @@
 # Comparison
 
-How pi-hindsight compares to other Hindsight integrations and the design decisions behind it.
+How epimetheus compares to other Hindsight integrations and the design decisions behind it.
 
 # Table of Contents
 - [Deviations from Official Integrations](#deviations-from-official-integrations)
@@ -116,7 +116,7 @@ Note: I do not plan on spending time keeping this updated or adding comparisons 
 > **Note:** This comparison table was AI-generated. If anything is incorrect or outdated, please open a PR. I'm only 100% sure of the current features of my own plugin.
 
 ## Design Decisions
-- **First class support for old sessions** I want to be able to reingest old sessions later on after adjustments to my retain/observations missions or pi-hindsight stripping configuration.
+- **First class support for old sessions** I want to be able to reingest old sessions later on after adjustments to my retain/observations missions or this extension's stripping configuration.
 - **Use a disk queue in case hindsight is down and to delay retention** There is intentionally no "retain every N turns" functionality currently. You generally will not need memories available for an in-progress session. You can flush on compact or manually flush in cases where you do.
 - **Use as much automatic tagging as possible**
 - **Use the official TypeScript client library over raw HTTP requests** Using `@vectorize-io/hindsight-client` ensures correct API usage, type safety, and automatic compatibility with Hindsight API changes.

@@ -13,6 +13,7 @@ import type { MemoryItemInput } from "@vectorize-io/hindsight-client";
 import type { HindsightClientWrapper } from "./client";
 import type { HindsightConfig } from "./config";
 import { expandSessionObservationScopes } from "./config";
+import { prefixLog } from "./constants";
 import {
   buildDocumentTags,
   buildMessageArrayFromParsedSession,
@@ -650,7 +651,9 @@ export async function parseAndUpsertSession(
     if (debug) {
       const elapsed = performance.now() - t0;
       console.log(
-        `pi-hindsight debug: parsePipeline(${sessionId}) took ${elapsed.toFixed(2)}ms, ${messages.length} messages`
+        prefixLog(
+          `debug: parsePipeline(${sessionId}) took ${elapsed.toFixed(2)}ms, ${messages.length} messages`
+        )
       );
     }
 

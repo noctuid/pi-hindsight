@@ -317,6 +317,7 @@ describe("hindsight-popup command", () => {
       () => recallDetails,
       () => null,
       () => {},
+      () => true,
       { configPath: undefined, envVars: [], warning: undefined, validationWarnings: [] }
     );
   }

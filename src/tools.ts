@@ -76,9 +76,21 @@ export function isToolEnabled(config: HindsightConfig, tool: ToolName): boolean 
 }
 
 /**
- * Register hindsight_retain, hindsight_recall, and hindsight_reflect tools.
- * hindsight_retain is always available (queues to disk) when enabled.
- * hindsight_recall and hindsight_reflect are only available when client is provided and enabled.
+ * Register the hindsight manual tools:
+ * `hindsight_set_extra_context`, `hindsight_get_extra_context`, `hindsight_retain`,
+ * `hindsight_recall`, and `hindsight_reflect`. Each is gated by
+ * `config.toolsEnabled` (via {@link isToolEnabled}) — `true` (default) enables
+ * all, `false` disables all, and an array enables only the listed tool names.
+ * The extra-context and retain tools are client-free (disk/local operations),
+ * so they are registered based solely on `toolsEnabled`. `hindsight_recall`
+ * and `hindsight_reflect` need a live client and are not registered at all
+ * when `client` is null (`if (!client) return;` runs before their blocks).
+ *
+ * This is called lazily from the `session_start` success path (after health +
+ * version checks pass), not at extension init. Late `registerTool()`
+ * auto-activates the tools via `refreshTools`, so they are visible to the LLM
+ * from the first agent turn on; callers then re-apply retention-based
+ * visibility via {@link updateRetainToolVisibility}.
  */
 export function registerTools(
   pi: ExtensionAPI,

@@ -20,8 +20,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { HindsightConfig } from "./config";
+import { prefixLog } from "./constants";
+import { getDataDir } from "./data-dir";
 import {
   buildContextFromSessionName,
   buildMessageArrayFromParsedSession,
@@ -41,7 +43,7 @@ import {
 // ============================================
 
 export function getParsedSessionDir(): string {
-  return join(getAgentDir(), "extensions", "pi-hindsight", "parsed-sessions");
+  return join(getDataDir(), "parsed-sessions");
 }
 
 /** Write a file atomically (temp file + rename) to avoid partial writes on crash. */
@@ -242,7 +244,9 @@ export function parseCurrentSession(
     if (debug) {
       const elapsed = performance.now() - t0;
       console.log(
-        `pi-hindsight debug: parseCurrentSession(${sessionId}) took ${elapsed.toFixed(2)}ms, ${result.messageCount} messages`
+        prefixLog(
+          `debug: parseCurrentSession(${sessionId}) took ${elapsed.toFixed(2)}ms, ${result.messageCount} messages`
+        )
       );
     }
 

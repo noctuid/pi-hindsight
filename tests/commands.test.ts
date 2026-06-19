@@ -118,6 +118,7 @@ describe("registerCommands", () => {
       () => {
         autoRecallDisplayOverride = !autoRecallDisplayOverride;
       },
+      () => true,
       { configPath: undefined, envVars: [], warning: undefined, validationWarnings: [] }
     );
   }
@@ -137,6 +138,7 @@ describe("registerCommands", () => {
       () => {
         autoRecallDisplayOverride = !autoRecallDisplayOverride;
       },
+      () => true,
       meta
     );
   }
@@ -227,11 +229,11 @@ describe("registerCommands", () => {
       );
     });
 
-    it("shows 'Server: ... (not configured)' when client is null", async () => {
+    it("shows config-invalid status when client is null but apiUrl is set", async () => {
       register(statusTestConfig, null);
       await getHandler()("status", makeCtx());
       expect(lastNotification?.message).toContain(
-        "Server: https://test.vectorize.io (not configured)"
+        "Server: https://test.vectorize.io (not checked: config invalid)"
       );
     });
 
