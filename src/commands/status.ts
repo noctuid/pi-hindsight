@@ -9,6 +9,7 @@ import type { RecallMessageDetails } from "../index";
 import { getHindsightMeta, shouldSessionBeRetained } from "../meta";
 import { findProjectConfigFile, resolveProjectConfig, resolveProjectName } from "../project-config";
 import { getPendingWorkCount } from "../retention";
+import { DEGRADED_REASON_PENDING, getDegradedReason, isOperationalReady } from "../runtime-state";
 import { getHindsightCompatibilityError, MIN_HINDSIGHT_VERSION } from "../version";
 import type { Subcommand } from "./types";
 
@@ -28,8 +29,27 @@ export function createStatusSubcommand(
     handler: async (_args: string, ctx: ExtensionContext) => {
       const lines: string[] = [];
 
+      // Operational mode and degraded reason (if any). Surfaced first so a
+      // degraded state is immediately visible at the top of the output,
+      // independent of the Connection diagnostics below (which describe the
+      // cause in more detail).
+      lines.push("== Status ==");
+      if (isOperationalReady()) {
+        lines.push("  Mode: operational");
+      } else {
+        lines.push("  Mode: degraded");
+        const reason = getDegradedReason();
+        const summary = reason?.message ?? DEGRADED_REASON_PENDING;
+        lines.push(`  Reason: ${summary}`);
+        if (reason?.errors && reason.errors.length > 0) {
+          for (const e of reason.errors) {
+            lines.push(`    - ${e.replace(/^epimetheus:\s*/, "")}`);
+          }
+        }
+      }
+
       // Connection status
-      lines.push("== Connection ==");
+      lines.push("\n== Connection ==");
       lines.push(`  Bank ID: ${config.bankId}`);
       if (client) {
         const healthResult = await client.healthCheck(ctx.signal);
