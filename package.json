@@ -1,9 +1,44 @@
 {
-  "name": "epimetheus",
-  "version": "0.5.0",
+  "name": "@noctuid/epimetheus",
+  "version": "0.6.0",
+  "description": "Pi extension integrating Hindsight AI memory with the pi coding agent",
+  "author": "noctuid",
+  "license": "GPL-3.0",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noctuid/epimetheus.git"
+  },
+  "homepage": "https://github.com/noctuid/epimetheus#readme",
+  "bugs": {
+    "url": "https://github.com/noctuid/epimetheus/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "epimetheus",
+    "hindsight",
+    "memory",
+    "ai-memory",
+    "ai",
+    "llm",
+    "agentic-ai",
+    "agents"
+  ],
+  "files": [
+    "src/**/*.ts",
+    "docs/**/*.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "lint": "biome lint .",
     "format": "biome format . --write && sed -i'' -e 's/[[:space:]]*$//' src/*.ts *.md",

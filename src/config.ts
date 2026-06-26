@@ -44,7 +44,13 @@ export interface EntityInput {
 export type MemoryType = "world" | "experience" | "observation";
 
 /** Observation scopes for controlling how observations are consolidated. */
-export type ObservationScopes = "per_tag" | "combined" | "all_combinations" | string[][] | null;
+export type ObservationScopes =
+  | "per_tag"
+  | "combined"
+  | "all_combinations"
+  | "shared"
+  | string[][]
+  | null;
 
 /** Placeholder patterns supported in observation_scopes arrays. */
 const SCOPE_PLACEHOLDERS: Record<string, string> = {
@@ -270,16 +276,14 @@ function validateTagGroupItem(item: unknown): boolean {
   const obj = item as Record<string, unknown>;
   if ("tags" in obj) {
     // TagGroupLeaf: { tags: string[], match?: TagsMatch }
-    if (
-      !Array.isArray(obj.tags) ||
-      obj.tags.length === 0 ||
-      !obj.tags.every((t: unknown) => typeof t === "string")
-    )
+    if (!Array.isArray(obj.tags) || !obj.tags.every((t: unknown) => typeof t === "string")) {
       return false;
+    }
     if ("match" in obj) {
-      const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict"];
+      const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict", "exact"];
       if (!validMatches.includes(obj.match as TagsMatch)) return false;
     }
+    if (obj.tags.length === 0 && obj.match !== "exact") return false;
     // Should only have tags/match keys
     const allowedKeys = new Set(["tags", "match"]);
     for (const key of Object.keys(obj)) {
@@ -695,7 +699,7 @@ function setConfigValue(
       }
     }
     case "autoRecallTagsMatch": {
-      const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict"];
+      const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict", "exact"];
       if (typeof value === "string" && validMatches.includes(value as TagsMatch)) {
         config[key] = value as TagsMatch;
         return;
@@ -806,7 +810,7 @@ function setConfigValue(
       // Non-string values (arrays/objects from a config file) are applied raw.
       // validateConfig fails closed on any structural malformation.
       if (typeof value === "string") {
-        const presetValues = ["per_tag", "combined", "all_combinations"];
+        const presetValues = ["per_tag", "combined", "all_combinations", "shared"];
         if (presetValues.includes(value)) {
           config[key] = value as ObservationScopes;
           return;
@@ -1647,10 +1651,10 @@ export function validateConfig(config: HindsightConfig): {
   let observationScopesReason = "";
 
   if (typeof config.observationScopes === "string") {
-    const validPresets = ["per_tag", "combined", "all_combinations"];
+    const validPresets = ["per_tag", "combined", "all_combinations", "shared"];
     if (!validPresets.includes(config.observationScopes)) {
       observationScopesInvalid = true;
-      observationScopesReason = `observationScopes: invalid preset "${config.observationScopes}". Expected "per_tag", "combined", or "all_combinations"`;
+      observationScopesReason = `observationScopes: invalid preset "${config.observationScopes}". Expected "per_tag", "combined", "all_combinations", or "shared"`;
     }
   } else if (Array.isArray(config.observationScopes)) {
     if (config.observationScopes.length === 0) {
@@ -1726,7 +1730,7 @@ export function validateConfig(config: HindsightConfig): {
 
   // Validate autoRecallTagsMatch (always, not conditional on autoRecallTags)
   {
-    const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict"];
+    const validMatches: TagsMatch[] = ["any", "all", "any_strict", "all_strict", "exact"];
     if (!validMatches.includes(config.autoRecallTagsMatch)) {
       warnings.push(
         `autoRecallTagsMatch: invalid value "${config.autoRecallTagsMatch}". Expected one of: ${validMatches.join(", ")}. Using default: ${DEFAULT_CONFIG.autoRecallTagsMatch}.`

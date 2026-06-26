@@ -21,6 +21,9 @@ Detailed configuration, tools, commands, and operational details for epimetheus.
     - [toolFilter](#toolfilter)
     - [entities](#entities)
   - [observationScopes](#observationscopes)
+    - [What Observation Scopes Are](#what-observation-scopes-are)
+    - [Placeholder Expansion](#placeholder-expansion)
+    - [Choosing array scopes](#choosing-array-scopes)
     - [Project scope for relocatable projects](#project-scope-for-relocatable-projects)
   - [Project-local Settings](#project-local-settings)
   - [autoRecallTags](#autorecalltags)
@@ -31,7 +34,7 @@ Detailed configuration, tools, commands, and operational details for epimetheus.
   - [Failure Modes](#failure-modes)
 - [Tools](#tools)
 - [Slash Commands](#slash-commands)
-- [Known Package Interactions](#known-package-interactions)
+- [Known Extension Interactions](#known-extension-interactions)
 
 # Configuration
 Configuration is stored in `<getAgentDir()>/epimetheus/config.json` or `config.jsonc` (JSONC has precedence). See the [Example Configuration](../README.md#example-configuration) in the main README for a practical starting point.
@@ -113,7 +116,7 @@ Two settings control which session lifecycle events automatically flush pending 
 | `autoRecallRole` | `"user"` | Role to use when injecting recall memories. The default is `"user"` because some providers require the last message to be user-role. `"assistant"` may also cause issues with other extensions that inject messages via the `context` event, since injection order cannot be controlled and mixed roles may confuse the LLM. |
 | `autoRecallTypes` | `["observation"]` | Memory types to recall. Set to `null` or `[]` to recall all types. |
 | `autoRecallTags` | `null` | Tags to filter by during auto-recall. Supports same placeholders as observation scopes (`{session}`, `{parent}`, `{cwd}`, `{basedir}`, `{project}`). `null` means no tag filtering (recall from entire bank). See [autoRecallTags](#autorecalltags). |
-| `autoRecallTagsMatch` | `"any"` | How to match `autoRecallTags`: `"any"` (OR, includes untagged), `"all"` (AND, includes untagged), `"any_strict"` (OR, excludes untagged), `"all_strict"` (AND, excludes untagged). |
+| `autoRecallTagsMatch` | `"any"` | How to match `autoRecallTags`: `"any"` (OR, includes untagged), `"all"` (AND, includes untagged), `"any_strict"` (OR, excludes untagged), `"all_strict"` (AND, excludes untagged), `"exact"` (tag set equality; no tags/null/empty tag list matches untagged memories). |
 | `autoRecallTagGroups` | `null` | Compound boolean tag expressions for auto-recall. Combined with `autoRecallTags` when both are set. Supports same placeholders. See [autoRecallTags](#autorecalltags). |
 
 > **Note:** observations are deduplicated consolidated information about memories and probably the most useful recall type. See [hindsight issue #826](https://github.com/vectorize-io/hindsight/issues/826) for more information.
@@ -218,7 +221,7 @@ The flush guard distinguishes between three states:
 
 This is particularly useful for sessions involving prose to prevent Hindsight from treating fictional characters as real people, fictional events as factual, or even real people as the user.
 
-The guard is checked at every session flush point in `autoFlushSessionOn`, `autoFlushPendingOn`, and for the manual manual slash commands (`/hindsight flush`, `/hindsight flush-pending`, and `/hindsight parse-and-upsert-session`). Tool queue flushes (from `hindsight_retain` tool calls) are not guarded.
+The guard is checked at every session flush point in `autoFlushSessionOn`, `autoFlushPendingOn`, and for the manual slash commands (`/hindsight flush`, `/hindsight flush-pending`, and `/hindsight parse-and-upsert-session`). Tool queue flushes (from `hindsight_retain` tool calls) are not guarded.
 
 ## Content Retention & Stripping Settings
 ### `retainContent`
@@ -355,6 +358,7 @@ export EPIMETHEUS_ENTITIES='[{"text":"John","type":"PERSON"}]'
 ```
 
 ### `observationScopes`
+#### What Observation Scopes Are
 Controls how observations are scoped during consolidation. **Required** — the default of `null` is invalid and will produce a validation error; you must explicitly set this to a preset or custom scope groups.
 
 The automatic `session:`, `parent:`, and `cwd:` tags added during retention make observation scopes important for controlling how observations are consolidated across sessions.
@@ -363,12 +367,14 @@ Using custom scope groups is recommended. Most users should combine a per-user s
 
 **Hindsight Presets:**
 - `"combined"` — A single pass with all tags together (Hindsight default, not recommended)
+- `"shared"` — single pass over one global, untagged scope (all memories consolidate together)
 - `"per_tag"` — One consolidation pass per individual tag, creating separate observations for each tag
 - `"all_combinations"` — One pass per unique combination of tags (can require *many* passes)
 
-**Custom scope groups:** An array of tag arrays, where each inner array defines a group of tags for one consolidation pass. This gives full control over which tag combinations produce separate observations.
+**Custom scope groups:** An array of tag arrays, where each inner array defines a group of tags for one consolidation pass. This is recommended as it gives full control over which tag combinations produce separate observations.
 
-**Placeholder expansion:** In custom scope groups, the following placeholders expand at retain time:
+#### Placeholder Expansion
+In custom scope groups, the following placeholders expand at retain time:
 
 | Placeholder | Expands to | Description |
 |-------------|-----------|-------------|
@@ -380,23 +386,32 @@ Using custom scope groups is recommended. Most users should combine a per-user s
 
 Placeholders must be used as standalone tags — e.g. `["{session}"]` not `["{session}:extra"]`. Non-exact placeholder usage will produce a config warning.
 
-**Choosing your scopes:**
-- **Per-session observations** (`["{session}"]`) — facts within a single session only — this is rarely useful unless you frequently resume the same session over and over. In practice, you'll get more value from:
-- **Per-user** (`["user:<me>"]`) — facts that span all your sessions/documents and memories stored manually with `hindsight_retain` tool, even across different harnesses. Add `"user:<me>"` to `constantTags` and use it as a scope. This is the most broadly useful scope.
-- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the git common-dir name when available (so worktrees get the same project name), otherwise the cwd basename. It can be overridden per project with [project-local settings](#project-local-settings). This is ideal over `{cwd}` when a project might change directories or have multiple separate worktrees — observations stay linked to the project identity rather than a specific path. See [Project scope for relocatable projects](#project-scope-for-relocatable-projects).
-- **Per-directory** (`["{cwd}"]`) — facts about a specific project/codebase, consolidated across all sessions in that directory
-- **Per-basedir** (`["{basedir}"]`) — facts scoped by directory name (basename). Less precise than `{cwd}` but works across different parent paths with the same directory name
+#### Choosing array scopes
+The simple way to think about this is that your observation scopes list should have an entry for any tag combination you will later want to filter observations by. Most users will want global and per-project observations.
+
+- **Per-user** (`["user:<me>"]`) — facts that span all your personal sessions/documents and memories. Add `"user:<me>"` to `constantTags` and use it as a scope.
+- **Global observations** (`[]` or `"<global tag that is on every memory>"`) — observations across all memories.  This is the most broadly useful scope. If your bank is not multi-user, you can still tag all memories with something like `"user:<me>"` and use that for global recall. One benefit of this over `[]` is that you can filter recall for both raw memories and observations using the same settings (filter to `"user:<me>"` with `"any_strict"`).
+- **Per-session observations** (`["{session}"]`) — observations within a single session only — this is rarely useful unless you frequently resume the same session over and over. In practice, you'll get more value from:
+- **Per-project** (`["{project}"]`) — facts about a specific project, independent of directory. The project tag defaults to the git common-dir name when available (so worktrees share the same project name), otherwise the cwd basename. It can be overridden with project-local `projectName`. This is ideal when a project might change directories — observations stay linked to the project identity rather than a specific path. See [Project scope for relocatable projects](#project-scope-for-relocatable-projects).
+- **Per-directory** (`["{cwd}"]`) — facts about a specific project/codebase, consolidated across all sessions in that directory. Not likely to be useful.
+- **Per-basedir** (`["{basedir}"]`) — facts scoped by directory name (basename). Less precise than `{cwd}` but works across different parent paths with the same directory name. Not likely to be useful over `{project}`.
 - **Per-harness** (`["harness:pi"]`) — facts that span all pi sessions (included as a default constant tag)
 
 
-Recommended example — Per-user scope plus per-project scope:
+Recommended example — Global scope plus per-project scope:
 ```jsonc
 {
   "constantTags": ["harness:pi", "user:<me>"],
   "observationScopes": [
-    ["user:<me>"],   // observations across all your sessions
-    ["{project}"]     // observations scoped to this project
-  ]
+    // observations across all your sessions
+    ["user:<me>"],
+    // observations scoped to this project
+    ["{project}"]
+  ],
+  // set to whatever you currently want to filter by to avoid duplicates
+  "autoRecallTags": ["{project}"],
+  // don't include untagged memories
+  "autoRecallTagsMatch": "any_strict"
 }
 ```
 
@@ -500,8 +515,9 @@ Tags to filter by during auto-recall. When set, only memories matching these tag
 - `"all"` — AND logic, includes untagged memories. A memory must have *all* specified tags.
 - `"any_strict"` — OR logic, **excludes** untagged memories. Only returns memories that actually have a matching tag.
 - `"all_strict"` — AND logic, **excludes** untagged memories.
+- `"exact"` — tag set equality. With a non-empty tag list, only memories with exactly those tags and no extras match. With no tags (`null`/empty), only untagged memories match.
 
-When `autoRecallTags` is `null` (default), no tag filtering is applied and `autoRecallTagsMatch` is ignored — auto-recall searches the entire bank.
+When `autoRecallTags` is `null` (default), no tag filtering is applied and `autoRecallTagsMatch` is ignored — auto-recall searches the entire bank, except when `autoRecallTagsMatch` is `"exact"`; in that case Hindsight matches exactly no tags (untagged memories only).
 
 **`autoRecallTagGroups`** provides compound boolean tag expressions for auto-recall filtering. When both `autoRecallTags` and `autoRecallTagGroups` are set, both are sent to the Hindsight API and combined. Tag groups support nested `and`/`or`/`not` expressions for complex filtering. Each leaf node has a `tags` array and an optional `match` mode. Groups in the top-level array are AND-ed together. See [the relevant hindsight documentation](https://hindsight.vectorize.io/developer/api/recall#tag_groups) for more information.
 
@@ -669,11 +685,14 @@ All commands are under `/hindsight <subcommand>`. With no subcommand, defaults t
 
 > **Note:** After `/resume`, a new user message is required before `/hindsight popup` will show content, since recall only happens when there's a user message to query against.
 
-# Known Package Interactions
+# Known Extension Interactions
 ## subagents
 You should check how your subagent plugin interacts with sessions. If it writes to a separate session, and you do not want memories stored for subagents, you should disable epimetheus for subagents. A good subagent plugin should allow disabling or configuring extensions per-agent.
 
 Edxeth's pi-subagents plugin injects `custom_message` entries via `before_agent_start` (subagent roster) and `sendMessage` (subagent results). These are converted to user-role messages by pi's `convertToLlm`. Since pi-subagents does not use the `context` event, its messages appear before epimetheus' recall injection, so the ordering (user prompt → roster/result as user → recall as assistant) is typically fine. However, if other extensions inject messages via the `context` event, injection order cannot be controlled and mixed roles after the user prompt may confuse the LLM. Consider setting `autoRecallRole: "user"` if this becomes an issue.
+
+## pi-link
+[pi-link](https://github.com/alvivar/pi-link) sends user messages to agents. These have a clear disclaimer in them, but if you have issues with misattribution, you can try including something like this in your retain mission: `"role":"user" messages that start with [Remote prompt from "<name>"] are from another agent <name> *not* the user`.
 
 ## rewind/rollback
 Rollback with checkpoint extensions is untested. It may require code changes to include rollback information/messages. I think it makes sense to include the rollback information in memories (what happened? why was it necessary?), so I won't support actually removing messages from before the rollback in the final ingested document.

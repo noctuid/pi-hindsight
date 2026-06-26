@@ -26,10 +26,11 @@ const TagsMatchSchema = Type.Union(
     Type.Literal("all"),
     Type.Literal("any_strict"),
     Type.Literal("all_strict"),
+    Type.Literal("exact"),
   ],
   {
     description:
-      "Match mode: 'any'(OR)/'all'(AND), '_strict' variants exclude untagged. Default: 'any'.",
+      "Match mode: 'any'(OR)/'all'(AND), '_strict' variants exclude untagged, 'exact' requires tag set equality (no tags/null/empty tag list matches untagged memories). Default: 'any'.",
   }
 );
 type TagsMatch = Static<typeof TagsMatchSchema>;

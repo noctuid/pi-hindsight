@@ -1151,7 +1151,10 @@ export async function doAutoRecallImpl(
         query: truncatedQuery,
         types: config.autoRecallTypes ?? undefined,
         tags: config.autoRecallTags ?? undefined,
-        tagsMatch: config.autoRecallTags ? config.autoRecallTagsMatch : undefined,
+        tagsMatch:
+          config.autoRecallTags || config.autoRecallTagsMatch === "exact"
+            ? config.autoRecallTagsMatch
+            : undefined,
         tagGroups: config.autoRecallTagGroups ?? undefined,
       },
       abortSignal

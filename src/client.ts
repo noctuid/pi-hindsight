@@ -40,7 +40,7 @@ export interface ReflectOptions {
   query: string;
   /** Filter memories by tags during reflection. If not specified, all memories are considered. */
   tags?: string[];
-  /** How to match tags: 'any' (OR, includes untagged), 'all' (AND, includes untagged), 'any_strict' (OR, excludes untagged), 'all_strict' (AND, excludes untagged). Default: 'any'. */
+  /** How to match tags: 'any' (OR, includes untagged), 'all' (AND, includes untagged), 'any_strict' (OR, excludes untagged), 'all_strict' (AND, excludes untagged), 'exact' (tag set equality; no tags/null/empty tag list matches untagged memories). Default: 'any'. */
   tagsMatch?: TagsMatch;
   /** Budget level controlling how much effort to spend on retrieval and reasoning: 'low', 'mid', or 'high'.
    *  Default: 'low' (per Hindsight SDK). Reflect runs an agentic loop with up to 10 iterations
