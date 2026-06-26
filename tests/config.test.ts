@@ -470,6 +470,18 @@ describe("validateConfig resets invalid values to defaults", () => {
     expect(warnings.some((w) => w.includes("Using default"))).toBe(true);
   });
 
+  it('autoRecallTagsMatch "exact" is accepted', () => {
+    const config = {
+      ...validConfig,
+      autoRecallTags: ["project:myapp"],
+      autoRecallTagsMatch: "exact" as import("../src/config").TagsMatch,
+    };
+    const { valid, warnings } = validateConfig(config);
+    expect(valid).toBe(true);
+    expect(config.autoRecallTagsMatch).toBe("exact");
+    expect(warnings.some((w) => w.includes("autoRecallTagsMatch"))).toBe(false);
+  });
+
   it('observationScopes "invalid_preset" → reset to null → error', () => {
     const config = {
       ...validConfig,
@@ -2354,6 +2366,19 @@ describe("observationScopes", () => {
     expect(config.observationScopes).toBe("per_tag");
   });
 
+  it('accepts "shared" preset from config file', () => {
+    writeFileSync(
+      join(TEST_DIR, "config.jsonc"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        observationScopes: "shared",
+      })
+    );
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.observationScopes).toBe("shared");
+  });
+
   it("accepts array of tag arrays from config file", () => {
     writeFileSync(
       join(TEST_DIR, "config.jsonc"),
@@ -2390,6 +2415,12 @@ describe("observationScopes", () => {
     process.env.PI_HINDSIGHT_OBSERVATION_SCOPES = "combined";
     const { config } = loadConfig(TEST_DIR);
     expect(config.observationScopes).toBe("combined");
+  });
+
+  it('accepts "shared" preset from env var', () => {
+    process.env.PI_HINDSIGHT_OBSERVATION_SCOPES = "shared";
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.observationScopes).toBe("shared");
   });
 
   it("accepts JSON array from env var", () => {
@@ -2524,7 +2555,7 @@ describe("observationScopes", () => {
 
 describe("validateConfig for observationScopes", () => {
   it("accepts preset string observationScopes", () => {
-    for (const preset of ["per_tag", "combined", "all_combinations"]) {
+    for (const preset of ["per_tag", "combined", "all_combinations", "shared"]) {
       const result = validateConfig({
         ...validConfig,
         observationScopes: preset as ObservationScopes,
@@ -2964,7 +2995,7 @@ describe("autoRecallTags", () => {
     };
     const { warnings } = validateConfig(config);
     expect(warnings).toContain(
-      'epimetheus: autoRecallTagsMatch: invalid value "invalid". Expected one of: any, all, any_strict, all_strict. Using default: any.'
+      'epimetheus: autoRecallTagsMatch: invalid value "invalid". Expected one of: any, all, any_strict, all_strict, exact. Using default: any.'
     );
     expect(config.autoRecallTagsMatch).toBe("any");
   });
@@ -3088,6 +3119,32 @@ describe("autoRecallTagGroups", () => {
       { tags: ["project:myapp"], match: "any_strict" },
       { tags: ["user:alice"], match: "all" },
     ]);
+  });
+
+  it('accepts "exact" match in auto-recall tag groups', () => {
+    writeFileSync(
+      join(TEST_DIR, "config.json"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        autoRecallTagGroups: [{ tags: ["project:myapp"], match: "exact" }],
+      })
+    );
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.autoRecallTagGroups).toEqual([{ tags: ["project:myapp"], match: "exact" }]);
+  });
+
+  it('accepts empty tags with "exact" match in auto-recall tag groups', () => {
+    writeFileSync(
+      join(TEST_DIR, "config.json"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        autoRecallTagGroups: [{ tags: [], match: "exact" }],
+      })
+    );
+    const { config } = loadConfig(TEST_DIR);
+    expect(config.autoRecallTagGroups).toEqual([{ tags: [], match: "exact" }]);
   });
 
   it("can be set via config file with nested and/or/not", () => {
@@ -3260,6 +3317,20 @@ describe("autoRecallTagGroups", () => {
         apiUrl: "https://test.test",
         apiKey: "test-key",
         autoRecallTagGroups: [{ tags: ["valid"], match: "invalid" }],
+      })
+    );
+    const { config, warning } = loadConfig(TEST_DIR);
+    expect(config.autoRecallTagGroups).toBe(null);
+    expect(warning).toContain("autoRecallTagGroups must be an array of tag group objects");
+  });
+
+  it('warns on empty tags without "exact" match in leaf', () => {
+    writeFileSync(
+      join(TEST_DIR, "config.json"),
+      JSON.stringify({
+        apiUrl: "https://test.test",
+        apiKey: "test-key",
+        autoRecallTagGroups: [{ tags: [], match: "any" }],
       })
     );
     const { config, warning } = loadConfig(TEST_DIR);

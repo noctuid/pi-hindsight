@@ -2,6 +2,8 @@
 
 ## Pending
 
+## 0.6.0
+
 ### Features
 
 - **Project-local config** — Added optional project-name overrides via `<cwd>/.pi/epimetheus/config.jsonc|.json` (`.jsonc` wins; no ancestor walk). The schema currently supports only `projectName`. Sessions started with a valid project-local config are marked to keep using it; marked sessions and sessions with an invalid present config fail closed instead of silently falling back. Unmarked sessions continue with the default project-name derivation. Flush tags and `{project}` auto-recall tags/tag groups use the same resolved project name.
@@ -12,6 +14,7 @@
 - **Compact project-name diagnostics** — `/hindsight config`'s `Session-Specific Project Config` section now shows the project-local config (file/presence/status + loaded `projectName` or invalid reason) in the same style as the main config source, and a one-line `Project name: <resolved> (source: <source>)` resolution, keeping the cwd-local/no-ancestor-walk note concise.
 - **Degraded-mode indicator in `/hindsight status`** — Added a `== Status ==` section at the top of `/hindsight status` showing `Mode: operational` or `Mode: degraded` (plus the specific degraded reason and any validation errors when degraded), so a degraded state is immediately visible without scrolling down to the Connection diagnostics.
 - **Default project names now prefer the git common dir** — Unmarked sessions derive project names as git common dir → `basename(cwd)`, so worktrees share the main repo name. For git submodules (and their worktrees), the commondir basename is used directly (e.g. `<super>/.git/modules/<name>` → `name`), so submodule worktrees share the submodule name instead of resolving to `modules`. Project-name environment-variable overrides were removed because they do not follow Pi session switching.
+- **New Hindsight filter modes** — Added support for Hindsight's `shared` observation scope preset and `exact` tag match mode, including exact empty-tag matching for untagged-only auto-recall.
 
 ### Fixed
 
@@ -28,7 +31,13 @@
 ### Documentation
 
 - Documented project-local config, resolution order, fail-closed behavior, and `/hindsight detach-project-name` in `docs/reference.md`.
+- Updated the README with npm install instructions, Hindsight rationale, current key features, roadmap, and user best-practice guidance.
 - Added `docs/architecture/config.md` and moved ingestion architecture docs to `docs/architecture/ingestion.md`.
+
+### Changes
+
+- **Release publishing workflow** — Added a tag-triggered GitHub Actions release workflow that publishes `@noctuid/epimetheus` to npm with provenance attestations.
+- **Package metadata updated for npm** — Added public package metadata, repository links, keywords, and package file allowlist for npm distribution.
 
 ## 0.5.0
 

@@ -628,7 +628,7 @@ describe("hindsight_recall parameter forwarding", () => {
     expect(callArgs.tags).toEqual(["topic:billing", "priority:high"]);
   });
 
-  it("forwards tagsMatch to client.recall", async () => {
+  it('forwards tagsMatch "exact" to client.recall', async () => {
     const pi = createMockPi();
     const client = createMockClient();
     const recallMock = client.recall as unknown as ReturnType<typeof mock>;
@@ -639,14 +639,14 @@ describe("hindsight_recall parameter forwarding", () => {
 
     await recallTool!.execute(
       "tc1",
-      { query: "test", tagsMatch: "all" },
+      { query: "test", tagsMatch: "exact" },
       undefined,
       undefined,
       ctx
     );
 
     const callArgs = recallMock.mock.calls[0]![0]!;
-    expect(callArgs.tagsMatch).toBe("all");
+    expect(callArgs.tagsMatch).toBe("exact");
   });
 
   it("forwards budget to client.recall", async () => {
@@ -744,7 +744,7 @@ describe("hindsight_reflect parameter forwarding", () => {
     expect(callArgs.tags).toEqual(["project:acme"]);
   });
 
-  it("forwards tagsMatch to client.reflect", async () => {
+  it('forwards tagsMatch "exact" to client.reflect', async () => {
     const pi = createMockPi();
     const client = createMockClient();
     const reflectMock = client.reflect as unknown as ReturnType<typeof mock>;
@@ -758,14 +758,14 @@ describe("hindsight_reflect parameter forwarding", () => {
 
     await reflectTool!.execute(
       "tc1",
-      { query: "test", tagsMatch: "any_strict" },
+      { query: "test", tagsMatch: "exact" },
       undefined,
       undefined,
       ctx
     );
 
     const callArgs = reflectMock.mock.calls[0]![0]!;
-    expect(callArgs.tagsMatch).toBe("any_strict");
+    expect(callArgs.tagsMatch).toBe("exact");
   });
 
   it("forwards budget to client.reflect", async () => {

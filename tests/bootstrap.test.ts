@@ -4105,6 +4105,7 @@ describe("real entrypoint bootstrap", () => {
     const pi = createMockPi();
     const extension = await import("../src/index");
     extension.default(pi);
+    await runHealthySessionStart(pi);
 
     const handler = pi.handlers.get("before_agent_start")!;
     const ctx = createMockContext();
@@ -4113,6 +4114,45 @@ describe("real entrypoint bootstrap", () => {
 
     expect(receivedTags).toBeUndefined();
     expect(receivedTagsMatch).toBeUndefined();
+  });
+
+  it('before_agent_start passes tagsMatch "exact" when autoRecallTags is null', async () => {
+    activeConfig = {
+      ...testConfig,
+      autoRecallPersist: false,
+      autoRecallTags: null,
+      autoRecallTagsMatch: "exact",
+    };
+
+    let receivedTags: string[] | undefined;
+    let receivedTagsMatch: string | undefined;
+    activeClientFactory = () => ({
+      healthCheck: mock(() => Promise.resolve({ success: true })),
+      retain: mock(() => Promise.resolve({ success: true })),
+      retainBatch: mock(() => Promise.resolve({ success: true })),
+      recall: mock((opts: { tags?: string[]; tagsMatch?: string }) => {
+        receivedTags = opts.tags;
+        receivedTagsMatch = opts.tagsMatch;
+        return Promise.resolve({
+          success: true,
+          response: { results: [{ id: "1", text: "Memory" }] },
+        });
+      }),
+      reflect: mock(() => Promise.resolve({ success: true, response: { text: "" } })),
+    });
+
+    const pi = createMockPi();
+    const extension = await import("../src/index");
+    extension.default(pi);
+    await runHealthySessionStart(pi);
+
+    const handler = pi.handlers.get("before_agent_start")!;
+    const ctx = createMockContext();
+
+    await handler({ type: "before_agent_start", prompt: "Hello" }, ctx);
+
+    expect(receivedTags).toBeUndefined();
+    expect(receivedTagsMatch).toBe("exact");
   });
 
   it("before_agent_start expands {project} in autoRecallTagGroups and passes to client.recall", async () => {
